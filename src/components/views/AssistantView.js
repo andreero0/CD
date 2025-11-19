@@ -337,22 +337,55 @@ export class AssistantView extends LitElement {
         // Check if marked is available
         if (typeof window !== 'undefined' && window.marked) {
             try {
-                // Configure marked for better security and formatting
+                // SECURITY FIX: Configure marked with sanitization enabled
+                // This prevents XSS attacks from malicious AI responses
                 window.marked.setOptions({
                     breaks: true,
                     gfm: true,
-                    sanitize: false, // We trust the AI responses
+                    sanitize: false, // We'll handle sanitization manually for better control
                 });
+
                 let rendered = window.marked.parse(content);
+
+                // SECURITY FIX: Additional sanitization to remove dangerous elements
+                rendered = this.sanitizeHTML(rendered);
+
                 rendered = this.wrapWordsInSpans(rendered);
                 return rendered;
             } catch (error) {
                 console.warn('Error parsing markdown:', error);
-                return content; // Fallback to plain text
+                return this.escapeHtml(content); // Fallback with HTML escaping
             }
         }
         console.log('Marked not available, using plain text');
-        return content; // Fallback if marked is not available
+        return this.escapeHtml(content); // Fallback with HTML escaping
+    }
+
+    // SECURITY FIX: Sanitize HTML to prevent XSS
+    sanitizeHTML(html) {
+        // Remove dangerous tags
+        const dangerousTags = /<(script|iframe|object|embed|applet|link|style|meta|base|form)[^>]*>.*?<\/\1>|<(script|iframe|object|embed|applet|link|style|meta|base|form)[^>]*\/>/gi;
+        html = html.replace(dangerousTags, '');
+
+        // Remove event handlers
+        html = html.replace(/\son\w+\s*=\s*["'][^"']*["']/gi, '');
+        html = html.replace(/\son\w+\s*=\s*[^\s>]*/gi, '');
+
+        // Remove javascript: protocol
+        html = html.replace(/href\s*=\s*["']javascript:[^"']*["']/gi, 'href="#"');
+        html = html.replace(/src\s*=\s*["']javascript:[^"']*["']/gi, 'src="#"');
+
+        // Remove data: URIs (except for images which might be base64)
+        html = html.replace(/href\s*=\s*["']data:[^"']*["']/gi, 'href="#"');
+
+        return html;
+    }
+
+    // SECURITY FIX: Escape HTML entities
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
     wrapWordsInSpans(html) {

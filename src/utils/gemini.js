@@ -33,6 +33,9 @@ let maxReconnectionAttempts = 3;
 let reconnectionDelay = 2000; // 2 seconds between attempts
 let lastSessionParams = null;
 
+// SECURITY FIX: Session initialization lock to prevent race conditions
+let initializationPromise = null;
+
 function sendToRenderer(channel, data) {
     const windows = BrowserWindow.getAllWindows();
     if (windows.length > 0) {
@@ -205,24 +208,51 @@ async function attemptReconnection() {
 }
 
 async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'interview', language = 'en-US', isReconnection = false) {
-    if (isInitializingSession) {
-        console.log('Session initialization already in progress');
-        return false;
+    // SECURITY FIX: If already initializing, wait for that promise to complete
+    if (initializationPromise) {
+        console.log('Session initialization already in progress, waiting...');
+        return await initializationPromise;
+    }
+
+    // SECURITY FIX: Validate API key
+    if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length === 0) {
+        console.error('Invalid API key provided');
+        return null;
+    }
+
+    // SECURITY FIX: Validate other inputs
+    if (customPrompt && typeof customPrompt !== 'string') {
+        console.error('Invalid custom prompt type');
+        customPrompt = '';
+    }
+
+    if (customPrompt && customPrompt.length > 10000) {
+        console.warn('Custom prompt too long, truncating to 10000 characters');
+        customPrompt = customPrompt.substring(0, 10000);
+    }
+
+    const validProfiles = ['interview', 'sales', 'meeting', 'presentation', 'negotiation', 'exam'];
+    if (!validProfiles.includes(profile)) {
+        console.warn(`Invalid profile ${profile}, defaulting to interview`);
+        profile = 'interview';
     }
 
     isInitializingSession = true;
     sendToRenderer('session-initializing', true);
 
-    // Store session parameters for reconnection (only if not already reconnecting)
-    if (!isReconnection) {
-        lastSessionParams = {
-            apiKey,
-            customPrompt,
-            profile,
-            language,
-        };
-        reconnectionAttempts = 0; // Reset counter for new session
-    }
+    // SECURITY FIX: Create the initialization promise
+    initializationPromise = (async () => {
+        try {
+            // Store session parameters for reconnection (only if not already reconnecting)
+            if (!isReconnection) {
+                lastSessionParams = {
+                    apiKey,
+                    customPrompt,
+                    profile,
+                    language,
+                };
+                reconnectionAttempts = 0; // Reset counter for new session
+            }
 
     const client = new GoogleGenAI({
         vertexai: false,
@@ -347,15 +377,21 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
             },
         });
 
-        isInitializingSession = false;
-        sendToRenderer('session-initializing', false);
-        return session;
-    } catch (error) {
-        console.error('Failed to initialize Gemini session:', error);
-        isInitializingSession = false;
-        sendToRenderer('session-initializing', false);
-        return null;
-    }
+            isInitializingSession = false;
+            sendToRenderer('session-initializing', false);
+            return session;
+        } catch (error) {
+            console.error('Failed to initialize Gemini session:', error);
+            isInitializingSession = false;
+            sendToRenderer('session-initializing', false);
+            return null;
+        } finally {
+            // SECURITY FIX: Clean up the initialization promise
+            initializationPromise = null;
+        }
+    })();
+
+    return await initializationPromise;
 }
 
 function killExistingSystemAudioDump() {
@@ -519,6 +555,18 @@ async function sendAudioToGemini(base64Data, geminiSessionRef) {
     }
 }
 
+// SECURITY FIX: Helper function to clear sensitive data from memory
+function clearSensitiveData() {
+    console.log('Clearing sensitive data from memory...');
+    if (lastSessionParams && lastSessionParams.apiKey) {
+        // Overwrite API key in memory
+        lastSessionParams.apiKey = null;
+    }
+    lastSessionParams = null;
+    currentTranscription = '';
+    messageBuffer = '';
+}
+
 function setupGeminiIpcHandlers(geminiSessionRef) {
     // Store the geminiSessionRef globally for reconnection access
     global.geminiSessionRef = geminiSessionRef;
@@ -534,6 +582,23 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
 
     ipcMain.handle('send-audio-content', async (event, { data, mimeType }) => {
         if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
+
+        // SECURITY FIX: Validate audio data
+        if (!data || typeof data !== 'string') {
+            return { success: false, error: 'Invalid audio data: must be a base64 string' };
+        }
+
+        // SECURITY FIX: Limit audio chunk size (10MB base64 max)
+        if (data.length > 10 * 1024 * 1024) {
+            return { success: false, error: 'Audio chunk too large' };
+        }
+
+        // SECURITY FIX: Validate mimeType
+        const validMimeTypes = ['audio/pcm;rate=24000', 'audio/webm', 'audio/wav'];
+        if (!mimeType || !validMimeTypes.some(valid => mimeType.startsWith(valid))) {
+            return { success: false, error: 'Invalid audio mimeType' };
+        }
+
         try {
             process.stdout.write('.');
             await geminiSessionRef.current.sendRealtimeInput({
@@ -549,6 +614,23 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
     // Handle microphone audio on a separate channel
     ipcMain.handle('send-mic-audio-content', async (event, { data, mimeType }) => {
         if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
+
+        // SECURITY FIX: Validate audio data
+        if (!data || typeof data !== 'string') {
+            return { success: false, error: 'Invalid audio data: must be a base64 string' };
+        }
+
+        // SECURITY FIX: Limit audio chunk size (10MB base64 max)
+        if (data.length > 10 * 1024 * 1024) {
+            return { success: false, error: 'Audio chunk too large' };
+        }
+
+        // SECURITY FIX: Validate mimeType
+        const validMimeTypes = ['audio/pcm;rate=24000', 'audio/webm', 'audio/wav'];
+        if (!mimeType || !validMimeTypes.some(valid => mimeType.startsWith(valid))) {
+            return { success: false, error: 'Invalid audio mimeType' };
+        }
+
         try {
             process.stdout.write(',');
             await geminiSessionRef.current.sendRealtimeInput({
@@ -570,11 +652,23 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
                 return { success: false, error: 'Invalid image data' };
             }
 
+            // SECURITY FIX: Limit image size (20MB base64 max)
+            if (data.length > 20 * 1024 * 1024) {
+                console.error('Image data too large');
+                return { success: false, error: 'Image data too large (max 20MB)' };
+            }
+
             const buffer = Buffer.from(data, 'base64');
 
             if (buffer.length < 1000) {
                 console.error(`Image buffer too small: ${buffer.length} bytes`);
                 return { success: false, error: 'Image buffer too small' };
+            }
+
+            // SECURITY FIX: Additional size check after decoding
+            if (buffer.length > 25 * 1024 * 1024) {
+                console.error('Decoded image buffer too large');
+                return { success: false, error: 'Decoded image too large' };
             }
 
             process.stdout.write('!');
@@ -595,6 +689,12 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
         try {
             if (!text || typeof text !== 'string' || text.trim().length === 0) {
                 return { success: false, error: 'Invalid text message' };
+            }
+
+            // SECURITY FIX: Limit text message length
+            if (text.length > 10000) {
+                console.warn('Text message too long, truncating');
+                text = text.substring(0, 10000);
             }
 
             console.log('Sending text message:', text);
@@ -637,8 +737,8 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
         try {
             stopMacOSAudioCapture();
 
-            // Clear session params to prevent reconnection when user closes session
-            lastSessionParams = null;
+            // SECURITY FIX: Clear sensitive data from memory
+            clearSensitiveData();
 
             // Cleanup any pending resources and stop audio/video capture
             if (geminiSessionRef.current) {

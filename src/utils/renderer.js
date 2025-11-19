@@ -1,5 +1,6 @@
 // renderer.js
-const { ipcRenderer } = require('electron');
+// SECURITY FIX: Use the exposed electron API from preload script instead of require
+const ipcRenderer = window.electron;
 
 // Initialize random display name for UI components
 window.randomDisplayName = null;
@@ -31,8 +32,9 @@ let offscreenCanvas = null;
 let offscreenContext = null;
 let currentImageQuality = 'medium'; // Store current image quality for manual screenshots
 
-const isLinux = process.platform === 'linux';
-const isMacOS = process.platform === 'darwin';
+// SECURITY FIX: Use platform from exposed API
+const isLinux = window.electron.platform === 'linux';
+const isMacOS = window.electron.platform === 'darwin';
 
 // Token tracking system for rate limiting
 let tokenTracker = {
@@ -162,7 +164,7 @@ async function initializeGemini(profile = 'interview', language = 'en-US') {
 }
 
 // Listen for status updates
-ipcRenderer.on('update-status', (event, status) => {
+ipcRenderer.on('update-status', (status) => {
     console.log('Status update:', status);
     cheddar.setStatus(status);
 });
@@ -712,7 +714,7 @@ async function getAllConversationSessions() {
 }
 
 // Listen for conversation data from main process
-ipcRenderer.on('save-conversation-turn', async (event, data) => {
+ipcRenderer.on('save-conversation-turn', async (data) => {
     try {
         await saveConversationSession(data.sessionId, data.fullHistory);
         console.log('Conversation session saved:', data.sessionId);

@@ -117,6 +117,19 @@ function setupGeneralIpcHandlers() {
 
     ipcMain.handle('open-external', async (event, url) => {
         try {
+            // SECURITY FIX: Validate URL before opening
+            if (typeof url !== 'string' || !url) {
+                throw new Error('Invalid URL: must be a non-empty string');
+            }
+
+            // Only allow http:// and https:// protocols to prevent arbitrary code execution
+            const urlObj = new URL(url);
+            const allowedProtocols = ['http:', 'https:'];
+
+            if (!allowedProtocols.includes(urlObj.protocol)) {
+                throw new Error(`Invalid URL protocol: ${urlObj.protocol}. Only http:// and https:// are allowed`);
+            }
+
             await shell.openExternal(url);
             return { success: true };
         } catch (error) {
@@ -131,12 +144,22 @@ function setupGeneralIpcHandlers() {
         }
     });
 
-    ipcMain.handle('update-content-protection', async (event, contentProtection) => {
+    ipcMain.handle('update-content-protection', async (event, contentProtectionValue) => {
         try {
             if (mainWindow) {
+                // SECURITY FIX: Use the parameter value if provided, otherwise fetch from localStorage
+                let contentProtection = contentProtectionValue;
 
-                // Get content protection setting from localStorage via cheddar
-                const contentProtection = await mainWindow.webContents.executeJavaScript('cheddar.getContentProtection()');
+                if (contentProtection === undefined || contentProtection === null) {
+                    // Fallback: Get content protection setting from localStorage via cheddar
+                    contentProtection = await mainWindow.webContents.executeJavaScript('cheddar.getContentProtection()');
+                }
+
+                // SECURITY: Validate boolean value
+                if (typeof contentProtection !== 'boolean') {
+                    contentProtection = Boolean(contentProtection);
+                }
+
                 mainWindow.setContentProtection(contentProtection);
                 console.log('Content protection updated:', contentProtection);
             }

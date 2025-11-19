@@ -40,12 +40,14 @@ function createWindow(sendToRenderer, geminiSessionRef, randomNames = null) {
         skipTaskbar: true,
         hiddenInMissionControl: true,
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false, // TODO: change to true
+            preload: path.join(__dirname, '../preload.js'),
+            nodeIntegration: false,
+            contextIsolation: true, // SECURITY: Enabled context isolation
             backgroundThrottling: false,
             enableBlinkFeatures: 'GetDisplayMedia',
             webSecurity: true,
             allowRunningInsecureContent: false,
+            sandbox: true, // SECURITY: Enable sandbox for additional protection
         },
         backgroundColor: '#00000000',
     });
@@ -250,10 +252,11 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
                     const isMac = process.platform === 'darwin';
                     const shortcutKey = isMac ? 'cmd+enter' : 'ctrl+enter';
 
-                    // Use the new handleShortcut function
-                    mainWindow.webContents.executeJavaScript(`
-                        cheddar.handleShortcut('${shortcutKey}');
-                    `);
+                    // SECURITY FIX: Use JSON.stringify to safely pass data
+                    // This prevents code injection even if shortcutKey is somehow manipulated
+                    await mainWindow.webContents.executeJavaScript(
+                        `cheddar.handleShortcut(${JSON.stringify(shortcutKey)})`
+                    );
                 } catch (error) {
                     console.error('Error handling next step shortcut:', error);
                 }

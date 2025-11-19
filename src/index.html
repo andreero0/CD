@@ -100,6 +100,9 @@
         </style>
     </head>
     <body>
+        <!-- SECURITY FIX: Load compatibility shim first -->
+        <script src="utils/electron-compat.js"></script>
+
         <script src="assets/marked-4.3.0.min.js"></script>
         <script src="assets/highlight-11.9.0.min.js"></script>
         <link rel="stylesheet" href="assets/highlight-vscode-dark.min.css" />
