@@ -211,7 +211,8 @@ function loadIndex(filename = 'hnsw_index.dat') {
 
         // Initialize new index with saved dimensions
         hnswIndex = new HierarchicalNSW('cosine', savedMetadata.numDimensions);
-        hnswIndex.readIndex(indexPath, savedMetadata.maxElements);
+        hnswIndex.initIndex(savedMetadata.maxElements);
+        hnswIndex.readIndex(indexPath);
 
         // Restore metadata
         indexMetadata = savedMetadata;
