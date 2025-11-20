@@ -384,6 +384,11 @@ export class DocumentsView extends LitElement {
         fileInput.click();
     }
 
+    handleDragEnter(e) {
+        e.preventDefault();
+        this.isDragging = true;
+    }
+
     handleDragOver(e) {
         e.preventDefault();
         this.isDragging = true;
@@ -400,9 +405,13 @@ export class DocumentsView extends LitElement {
 
         const files = Array.from(e.dataTransfer.files).filter(file => file.type === 'application/pdf');
 
-        if (files.length > 0) {
-            await this.uploadFiles(files);
+        if (files.length === 0) {
+            console.warn('No PDF files found in drop');
+            return;
         }
+
+        console.log(`Processing ${files.length} PDF file(s):`, files.map(f => f.name).join(', '));
+        await this.uploadFiles(files);
     }
 
     async handleFileSelect(e) {
@@ -418,11 +427,16 @@ export class DocumentsView extends LitElement {
         this.isUploading = true;
         this.uploadProgress = 0;
 
+        let successCount = 0;
+        let failedFiles = [];
+
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
             try {
                 // Update progress
                 this.uploadProgress = Math.round(((i + 0.5) / files.length) * 100);
+
+                console.log(`Processing PDF ${i + 1}/${files.length}: ${file.name}`);
 
                 // Process PDF
                 const processedDoc = await processPDFFile(file);
@@ -430,10 +444,14 @@ export class DocumentsView extends LitElement {
                 // Add to database
                 await documentDB.addDocument(processedDoc);
 
+                successCount++;
+                console.log(`✓ Successfully processed: ${file.name}`);
+
                 // Update progress
                 this.uploadProgress = Math.round(((i + 1) / files.length) * 100);
             } catch (error) {
                 console.error('Error uploading file:', file.name, error);
+                failedFiles.push({ name: file.name, error: error.message });
                 // Continue with next file
             }
         }
@@ -443,6 +461,38 @@ export class DocumentsView extends LitElement {
 
         this.isUploading = false;
         this.uploadProgress = 0;
+
+        // Show notification based on results
+        const app = document.querySelector('cheating-daddy-app');
+        if (app && app.addErrorNotification) {
+            if (successCount > 0 && failedFiles.length === 0) {
+                // All files succeeded
+                app.addErrorNotification({
+                    type: 'info',
+                    title: 'Documents Uploaded',
+                    message: `Successfully processed ${successCount} document${successCount > 1 ? 's' : ''}. Documents are now available for context during interviews.`,
+                });
+            } else if (successCount > 0 && failedFiles.length > 0) {
+                // Partial success
+                app.addErrorNotification({
+                    type: 'warning',
+                    title: 'Partial Upload',
+                    message: `Processed ${successCount} of ${files.length} documents. ${failedFiles.length} file${failedFiles.length > 1 ? 's' : ''} failed: ${failedFiles.map(f => f.name).join(', ')}`,
+                });
+            } else if (failedFiles.length > 0) {
+                // All failed
+                app.addErrorNotification({
+                    type: 'error',
+                    title: 'Upload Failed',
+                    message: `Failed to process ${failedFiles.length} document${failedFiles.length > 1 ? 's' : ''}. Please ensure they are valid PDF files.`,
+                    recoverySteps: [
+                        'Check that the files are valid PDF documents',
+                        'Ensure PDFs are not password-protected or corrupted',
+                        'Try uploading files one at a time',
+                    ],
+                });
+            }
+        }
     }
 
     async handlePreview(doc) {
