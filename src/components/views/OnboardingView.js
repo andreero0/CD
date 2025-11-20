@@ -495,15 +495,15 @@ export class OnboardingView extends LitElement {
                         ? html`
                               <div class="feature-list">
                                   <div class="feature-item">
-                                      <span class="feature-icon">🎨</span>
+                                      <span class="feature-icon">•</span>
                                       Customize AI behavior and responses
                                   </div>
                                   <div class="feature-item">
-                                      <span class="feature-icon">📚</span>
+                                      <span class="feature-icon">•</span>
                                       Review conversation history
                                   </div>
                                   <div class="feature-item">
-                                      <span class="feature-icon">🔧</span>
+                                      <span class="feature-icon">•</span>
                                       Adjust capture settings and intervals
                                   </div>
                               </div>

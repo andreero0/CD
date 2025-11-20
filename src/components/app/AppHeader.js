@@ -212,7 +212,7 @@ export class AppHeader extends LitElement {
             clearInterval(window.screenshotInterval);
         }
 
-        console.log('🚨 PANIC button activated - window hidden, capture stopped');
+        console.log('PANIC button activated - window hidden, capture stopped');
     }
 
     disconnectedCallback() {
@@ -302,7 +302,12 @@ export class AppHeader extends LitElement {
                                   <span>${this.connectionStatus === 'connected' ? 'AI Listening' : this.connectionStatus === 'connecting' ? 'Connecting...' : this.connectionStatus === 'reconnected' ? 'Reconnected' : 'Disconnected'}</span>
                               </div>
                               <button class="panic-button" @click=${this.handlePanicButton} title="Emergency hide (Cmd/Ctrl+P)">
-                                  🚨 PANIC
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-right: 4px;">
+                                      <path d="M12 9V13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                      <path d="M12 17.01L12.01 16.9989" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                      <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="currentColor" stroke-width="2"/>
+                                  </svg>
+                                  PANIC
                               </button>
                               <span>${elapsedTime}</span>
                               <span>${this.statusText}</span>

@@ -130,10 +130,10 @@ let tokenTracker = {
             // Adaptive quality: reduce screenshot quality when throttling
             if (usagePercent >= 90) {
                 currentImageQuality = 'low';
-                console.log('🔻 Adaptive quality: reducing to LOW quality due to high token usage');
+                console.log('ADAPTIVE QUALITY: Reducing to LOW quality due to high token usage');
             } else if (usagePercent >= 80) {
                 currentImageQuality = 'medium';
-                console.log('🔻 Adaptive quality: reducing to MEDIUM quality due to token usage');
+                console.log('ADAPTIVE QUALITY: Reducing to MEDIUM quality due to token usage');
             }
         }
 
@@ -217,7 +217,7 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
 
     // Reset token tracker when starting new capture session
     tokenTracker.reset();
-    console.log('🎯 Token tracker reset for new capture session');
+    console.log('Token tracker reset for new capture session');
 
     const audioMode = localStorage.getItem('audioMode') || 'speaker_only';
 
@@ -509,13 +509,13 @@ async function captureScreenshot(imageQuality = 'medium', isManual = false) {
 
     // Prevent race condition: if screenshot is already in progress, skip
     if (isCapturingScreenshot) {
-        console.log('⚠️ Screenshot already in progress, skipping to prevent race condition');
+        console.log('WARNING: Screenshot already in progress, skipping to prevent race condition');
         return;
     }
 
     // Check rate limiting for automated screenshots only
     if (!isManual && tokenTracker.shouldThrottle()) {
-        console.log('⚠️ Automated screenshot skipped due to rate limiting');
+        console.log('WARNING: Automated screenshot skipped due to rate limiting');
         return;
     }
 
@@ -611,7 +611,7 @@ async function captureScreenshot(imageQuality = 'medium', isManual = false) {
                         // Track image tokens after successful send
                         const imageTokens = tokenTracker.calculateImageTokens(offscreenCanvas.width, offscreenCanvas.height);
                         tokenTracker.addTokens(imageTokens, 'image');
-                        console.log(`📊 Image sent successfully - ${imageTokens} tokens used (${offscreenCanvas.width}x${offscreenCanvas.height})`);
+                        console.log(`Image sent successfully - ${imageTokens} tokens used (${offscreenCanvas.width}x${offscreenCanvas.height})`);
                     } else {
                         console.error('Failed to send image:', result.error);
                     }
