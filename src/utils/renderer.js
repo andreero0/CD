@@ -31,11 +31,18 @@ let offscreenCanvas = null;
 let offscreenContext = null;
 let currentImageQuality = 'medium'; // Store current image quality for manual screenshots
 
+// Screenshot timing tracker for status bar
+window.screenshotTracker = {
+    lastScreenshotTime: 0,
+    intervalSeconds: 5,
+    isManualMode: false,
+};
+
 const isLinux = process.platform === 'linux';
 const isMacOS = process.platform === 'darwin';
 
 // Token tracking system for rate limiting
-let tokenTracker = {
+window.tokenTracker = {
     tokens: [], // Array of {timestamp, count, type} objects
     audioStartTime: null,
 
@@ -126,7 +133,7 @@ let tokenTracker = {
 
 // Track audio tokens every few seconds
 setInterval(() => {
-    tokenTracker.trackAudioTokens();
+    window.tokenTracker.trackAudioTokens();
 }, 2000);
 
 function convertFloat32ToInt16(float32Array) {
@@ -174,12 +181,12 @@ ipcRenderer.on('update-status', (event, status) => {
 //     // You can add UI elements to display the response if needed
 // });
 
-async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'medium') {
+async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'medium', existingScreenStream = null, existingMicStream = null) {
     // Store the image quality for manual screenshots
     currentImageQuality = imageQuality;
 
     // Reset token tracker when starting new capture session
-    tokenTracker.reset();
+    window.tokenTracker.reset();
     console.log('🎯 Token tracker reset for new capture session');
 
     const audioMode = localStorage.getItem('audioMode') || 'speaker_only';
@@ -195,35 +202,47 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
                 throw new Error('Failed to start macOS audio capture: ' + audioResult.error);
             }
 
-            // Get screen capture for screenshots
-            mediaStream = await navigator.mediaDevices.getDisplayMedia({
-                video: {
-                    frameRate: 1,
-                    width: { ideal: 1920 },
-                    height: { ideal: 1080 },
-                },
-                audio: false, // Don't use browser audio on macOS
-            });
+            // Use existing screen stream from wizard, or request new one
+            if (existingScreenStream) {
+                mediaStream = existingScreenStream;
+                console.log('Using pre-approved screen stream from wizard');
+            } else {
+                // Get screen capture for screenshots
+                mediaStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: {
+                        frameRate: 1,
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 },
+                    },
+                    audio: false, // Don't use browser audio on macOS
+                });
+            }
 
             console.log('macOS screen capture started - audio handled by SystemAudioDump');
 
             if (audioMode === 'mic_only' || audioMode === 'both') {
-                let micStream = null;
-                try {
-                    micStream = await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            sampleRate: SAMPLE_RATE,
-                            channelCount: 1,
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true,
-                        },
-                        video: false,
-                    });
-                    console.log('macOS microphone capture started');
-                    setupLinuxMicProcessing(micStream);
-                } catch (micError) {
-                    console.warn('Failed to get microphone access on macOS:', micError);
+                // Use existing microphone stream from wizard, or request new one
+                if (existingMicStream) {
+                    console.log('Using pre-approved microphone stream from wizard');
+                    setupLinuxMicProcessing(existingMicStream);
+                } else {
+                    let micStream = null;
+                    try {
+                        micStream = await navigator.mediaDevices.getUserMedia({
+                            audio: {
+                                sampleRate: SAMPLE_RATE,
+                                channelCount: 1,
+                                echoCancellation: true,
+                                noiseSuppression: true,
+                                autoGainControl: true,
+                            },
+                            video: false,
+                        });
+                        console.log('macOS microphone capture started');
+                        setupLinuxMicProcessing(micStream);
+                    } catch (micError) {
+                        console.warn('Failed to get microphone access on macOS:', micError);
+                    }
                 }
             }
         } else if (isLinux) {
@@ -341,10 +360,17 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
         // Start capturing screenshots - check if manual mode
         if (screenshotIntervalSeconds === 'manual' || screenshotIntervalSeconds === 'Manual') {
             console.log('Manual mode enabled - screenshots will be captured on demand only');
+            // Update screenshot tracker for status bar
+            window.screenshotTracker.isManualMode = true;
+            window.screenshotTracker.intervalSeconds = 0;
             // Don't start automatic capture in manual mode
         } else {
             const intervalMilliseconds = parseInt(screenshotIntervalSeconds) * 1000;
             screenshotInterval = setInterval(() => captureScreenshot(imageQuality), intervalMilliseconds);
+
+            // Update screenshot tracker for status bar
+            window.screenshotTracker.isManualMode = false;
+            window.screenshotTracker.intervalSeconds = parseInt(screenshotIntervalSeconds);
 
             // Capture first screenshot immediately
             setTimeout(() => captureScreenshot(imageQuality), 100);
@@ -352,6 +378,52 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
     } catch (err) {
         console.error('Error starting capture:', err);
         cheddar.setStatus('error');
+
+        // Send error notification with recovery steps
+        const app = document.querySelector('cheating-daddy-app');
+        if (app && app.addErrorNotification) {
+            let errorMessage = 'Failed to start capture';
+            let recoverySteps = [];
+
+            if (err.message && err.message.includes('Permission denied')) {
+                errorMessage = 'Screen capture permission denied';
+                recoverySteps = [
+                    'Allow screen sharing when prompted',
+                    'Restart the application',
+                    'Try starting the session again'
+                ];
+            } else if (err.message && err.message.includes('audio')) {
+                errorMessage = 'Audio capture failed';
+                recoverySteps = [
+                    'Check your audio permissions',
+                    'Ensure no other app is using the microphone',
+                    'Try restarting the session'
+                ];
+            } else {
+                recoverySteps = [
+                    'Check your system permissions',
+                    'Restart the application',
+                    'Contact support if the issue persists'
+                ];
+            }
+
+            app.addErrorNotification({
+                type: 'error',
+                title: 'Capture Failed',
+                message: errorMessage,
+                recoverySteps: recoverySteps,
+                actions: [{
+                    label: 'Retry',
+                    primary: true,
+                    dismissOnClick: true,
+                    onClick: () => {
+                        // Retry capture with same settings
+                        startCapture(screenshotIntervalSeconds, imageQuality);
+                    }
+                }],
+                persistent: true
+            });
+        }
     }
 }
 
@@ -453,8 +525,32 @@ async function captureScreenshot(imageQuality = 'medium', isManual = false) {
     if (!mediaStream) return;
 
     // Check rate limiting for automated screenshots only
-    if (!isManual && tokenTracker.shouldThrottle()) {
+    if (!isManual && window.tokenTracker.shouldThrottle()) {
         console.log('⚠️ Automated screenshot skipped due to rate limiting');
+
+        // Show rate limiting warning to user (only once per throttle period)
+        if (!window._rateLimitWarningShown) {
+            window._rateLimitWarningShown = true;
+            const app = document.querySelector('cheating-daddy-app');
+            if (app && app.addErrorNotification) {
+                app.addErrorNotification({
+                    type: 'warning',
+                    title: 'Rate Limiting Active',
+                    message: 'Screenshot capture is being throttled to stay within token limits',
+                    recoverySteps: [
+                        'Automated screenshots will resume when rate limits allow',
+                        'You can still capture manual screenshots',
+                        'Adjust rate limit settings in Advanced settings'
+                    ]
+                });
+            }
+
+            // Reset warning flag after 2 minutes
+            setTimeout(() => {
+                window._rateLimitWarningShown = false;
+            }, 120000);
+        }
+
         return;
     }
 
@@ -535,9 +631,15 @@ async function captureScreenshot(imageQuality = 'medium', isManual = false) {
 
                 if (result.success) {
                     // Track image tokens after successful send
-                    const imageTokens = tokenTracker.calculateImageTokens(offscreenCanvas.width, offscreenCanvas.height);
-                    tokenTracker.addTokens(imageTokens, 'image');
+                    const imageTokens = window.tokenTracker.calculateImageTokens(offscreenCanvas.width, offscreenCanvas.height);
+                    window.tokenTracker.addTokens(imageTokens, 'image');
                     console.log(`📊 Image sent successfully - ${imageTokens} tokens used (${offscreenCanvas.width}x${offscreenCanvas.height})`);
+
+                    // Update screenshot tracker for status bar
+                    window.screenshotTracker.lastScreenshotTime = Date.now();
+
+                    // Send screenshot captured event for visual feedback
+                    ipcRenderer.send('screenshot-captured', base64data);
                 } else {
                     console.error('Failed to send image:', result.error);
                 }

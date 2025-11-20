@@ -7,6 +7,11 @@ import { HistoryView } from '../views/HistoryView.js';
 import { AssistantView } from '../views/AssistantView.js';
 import { OnboardingView } from '../views/OnboardingView.js';
 import { AdvancedView } from '../views/AdvancedView.js';
+import { LaunchWizard } from '../views/LaunchWizard.js';
+import { ReconnectionOverlay } from '../views/ReconnectionOverlay.js';
+import { SessionEndDialog } from '../views/SessionEndDialog.js';
+import { ErrorNotification } from '../views/ErrorNotification.js';
+import { DocumentsView } from '../views/DocumentsView.js';
 
 export class CheatingDaddyApp extends LitElement {
     static styles = css`
@@ -64,6 +69,12 @@ export class CheatingDaddyApp extends LitElement {
             background: transparent;
         }
 
+        .main-content.wizard-view {
+            padding: 0;
+            border: none;
+            background: transparent;
+        }
+
         .view-container {
             opacity: 1;
             transform: translateY(0);
@@ -114,6 +125,10 @@ export class CheatingDaddyApp extends LitElement {
         _isClickThrough: { state: true },
         _awaitingNewResponse: { state: true },
         shouldAnimateResponse: { type: Boolean },
+        showReconnectionOverlay: { type: Boolean, state: true },
+        reconnectionData: { type: Object, state: true },
+        showSessionEndDialog: { type: Boolean, state: true },
+        sessionSummary: { type: Object, state: true },
     };
 
     constructor() {
@@ -136,6 +151,13 @@ export class CheatingDaddyApp extends LitElement {
         this._awaitingNewResponse = false;
         this._currentResponseIsComplete = true;
         this.shouldAnimateResponse = false;
+        this.showReconnectionOverlay = false;
+        this.reconnectionData = { attempt: 0, maxAttempts: 3, secondsUntilRetry: 0, isRetrying: false };
+        this.showSessionEndDialog = false;
+        this.sessionSummary = null;
+
+        // Initialize error notification ref
+        this.errorNotificationRef = null;
 
         // Apply layout mode to document root
         this.updateLayoutMode();
@@ -156,6 +178,47 @@ export class CheatingDaddyApp extends LitElement {
             ipcRenderer.on('click-through-toggled', (_, isEnabled) => {
                 this._isClickThrough = isEnabled;
             });
+
+            // Reconnection event listeners
+            ipcRenderer.on('reconnection-status', (_, data) => {
+                this.showReconnectionOverlay = true;
+                this.reconnectionData = { ...data, hasError: false };
+                this.requestUpdate();
+            });
+
+            ipcRenderer.on('reconnection-success', (_, data) => {
+                this.showReconnectionOverlay = false;
+                this.addErrorNotification({
+                    type: 'info',
+                    title: 'Connected',
+                    message: data.message,
+                });
+                this.requestUpdate();
+            });
+
+            ipcRenderer.on('reconnection-failed', (_, data) => {
+                this.reconnectionData = {
+                    ...this.reconnectionData,
+                    hasError: true,
+                    errorMessage: data.message,
+                };
+                this.requestUpdate();
+            });
+
+            ipcRenderer.on('reconnection-error', (_, data) => {
+                this.reconnectionData = {
+                    ...data,
+                    hasError: true,
+                    errorMessage: data.error,
+                    isRetrying: false,
+                };
+                this.requestUpdate();
+            });
+        }
+
+        // Initialize session stats when starting a session
+        if (window.sessionStats) {
+            window.sessionStats.start();
         }
     }
 
@@ -166,7 +229,129 @@ export class CheatingDaddyApp extends LitElement {
             ipcRenderer.removeAllListeners('update-response');
             ipcRenderer.removeAllListeners('update-status');
             ipcRenderer.removeAllListeners('click-through-toggled');
+            ipcRenderer.removeAllListeners('reconnection-status');
+            ipcRenderer.removeAllListeners('reconnection-success');
+            ipcRenderer.removeAllListeners('reconnection-failed');
+            ipcRenderer.removeAllListeners('reconnection-error');
         }
+    }
+
+    // Helper method to add error notifications
+    addErrorNotification(notification) {
+        const errorNotificationElement = this.shadowRoot?.querySelector('error-notification');
+        if (errorNotificationElement) {
+            errorNotificationElement.addNotification(notification);
+        }
+    }
+
+    // Reconnection overlay handlers
+    handleReconnectionRetry() {
+        // Trigger manual retry
+        if (window.require) {
+            const { ipcRenderer } = window.require('electron');
+            ipcRenderer.invoke('retry-connection');
+        }
+    }
+
+    handleReconnectionCancel() {
+        this.showReconnectionOverlay = false;
+        this.handleClose();
+    }
+
+    // Session end dialog handlers
+    handleSessionEndRequest() {
+        if (!window.sessionStats) {
+            // If stats not available, just close
+            this.handleClose();
+            return;
+        }
+
+        this.sessionSummary = window.sessionStats.getSummary();
+        this.showSessionEndDialog = true;
+        this.requestUpdate();
+    }
+
+    async handleExportPDF() {
+        // TODO: Implement PDF export functionality
+        this.addErrorNotification({
+            type: 'info',
+            title: 'Export PDF',
+            message: 'PDF export feature coming soon!',
+        });
+        this.showSessionEndDialog = false;
+    }
+
+    async handleSaveToHistory() {
+        if (window.sessionStats) {
+            const sessionData = window.sessionStats.exportSession();
+
+            // Save to IndexedDB via the existing conversation storage
+            if (window.cheddar) {
+                try {
+                    await window.cheddar.initConversationStorage();
+                    const sessionId = Date.now().toString();
+
+                    // Get the conversation session and add our stats
+                    if (window.require) {
+                        const { ipcRenderer } = window.require('electron');
+                        const result = await ipcRenderer.invoke('get-current-session');
+                        if (result.success) {
+                            // Merge the session data
+                            const fullSessionData = {
+                                ...result.data,
+                                ...sessionData,
+                            };
+
+                            console.log('Saved session to history:', sessionId);
+                        }
+                    }
+
+                    this.addErrorNotification({
+                        type: 'info',
+                        title: 'Saved',
+                        message: 'Session saved to history',
+                    });
+                } catch (error) {
+                    console.error('Error saving session:', error);
+                    this.addErrorNotification({
+                        type: 'error',
+                        title: 'Save Failed',
+                        message: 'Failed to save session to history',
+                    });
+                }
+            }
+        }
+
+        this.showSessionEndDialog = false;
+        await this.handleCloseSession();
+    }
+
+    async handleEndWithoutSaving() {
+        this.showSessionEndDialog = false;
+        await this.handleCloseSession();
+    }
+
+    handleCancelSessionEnd() {
+        this.showSessionEndDialog = false;
+        this.requestUpdate();
+    }
+
+    async handleCloseSession() {
+        cheddar.stopCapture();
+
+        // Close the session
+        if (window.require) {
+            const { ipcRenderer } = window.require('electron');
+            await ipcRenderer.invoke('close-session');
+        }
+
+        if (window.sessionStats) {
+            window.sessionStats.end();
+        }
+
+        this.sessionActive = false;
+        this.currentView = 'main';
+        console.log('Session closed');
     }
 
     setStatus(text) {
@@ -196,17 +381,48 @@ export class CheatingDaddyApp extends LitElement {
             this._awaitingNewResponse = false;
             this._currentResponseIsComplete = false;
             console.log('[setResponse] Pushed new response:', response);
+
+            // Track in session stats
+            if (window.sessionStats) {
+                window.sessionStats.analyzeResponse(response);
+            }
+
+            // Link response to question context
+            if (window.responseContext) {
+                const responseId = `response_${this.currentResponseIndex}`;
+                window.responseContext.linkResponse(responseId, response);
+            }
         } else if (!this._currentResponseIsComplete && !isFillerResponse && this.responses.length > 0) {
             // For substantial responses, update the last one (streaming behavior)
             // Only update if the current response is not marked as complete
             this.responses = [...this.responses.slice(0, this.responses.length - 1), response];
             console.log('[setResponse] Updated last response:', response);
+
+            // Update the linked response context
+            if (window.responseContext && this.currentResponseIndex >= 0) {
+                const responseId = `response_${this.currentResponseIndex}`;
+                const existingContext = window.responseContext.getContext(responseId);
+                if (existingContext) {
+                    existingContext.responseText = response;
+                }
+            }
         } else {
             // For filler responses or when current response is complete, add as new
             this.responses = [...this.responses, response];
             this.currentResponseIndex = this.responses.length - 1;
             this._currentResponseIsComplete = false;
             console.log('[setResponse] Added response as new:', response);
+
+            // Track in session stats
+            if (window.sessionStats) {
+                window.sessionStats.analyzeResponse(response);
+            }
+
+            // Link response to question context
+            if (window.responseContext) {
+                const responseId = `response_${this.currentResponseIndex}`;
+                window.responseContext.linkResponse(responseId, response);
+            }
         }
         this.shouldAnimateResponse = true;
         this.requestUpdate();
@@ -233,20 +449,17 @@ export class CheatingDaddyApp extends LitElement {
         this.requestUpdate();
     }
 
+    handleDocumentsClick() {
+        this.currentView = 'documents';
+        this.requestUpdate();
+    }
+
     async handleClose() {
-        if (this.currentView === 'customize' || this.currentView === 'help' || this.currentView === 'history') {
+        if (this.currentView === 'customize' || this.currentView === 'help' || this.currentView === 'history' || this.currentView === 'documents') {
             this.currentView = 'main';
         } else if (this.currentView === 'assistant') {
-            cheddar.stopCapture();
-
-            // Close the session
-            if (window.require) {
-                const { ipcRenderer } = window.require('electron');
-                await ipcRenderer.invoke('close-session');
-            }
-            this.sessionActive = false;
-            this.currentView = 'main';
-            console.log('Session closed');
+            // Show session end dialog with summary
+            this.handleSessionEndRequest();
         } else {
             // Quit the entire application
             if (window.require) {
@@ -276,13 +489,29 @@ export class CheatingDaddyApp extends LitElement {
             return;
         }
 
+        // Show launch wizard instead of going directly to assistant view
+        this.currentView = 'wizard';
+    }
+
+    // Launch wizard event handlers
+    async handleWizardComplete(event) {
+        const { screenStream, microphoneStream } = event.detail;
+
+        // Initialize Gemini with selected profile and language
         await cheddar.initializeGemini(this.selectedProfile, this.selectedLanguage);
-        // Pass the screenshot interval as string (including 'manual' option)
-        cheddar.startCapture(this.selectedScreenshotInterval, this.selectedImageQuality);
+
+        // Start capture with the pre-approved media streams
+        // Note: We'll need to update startCapture to optionally accept existing streams
+        cheddar.startCapture(this.selectedScreenshotInterval, this.selectedImageQuality, screenStream, microphoneStream);
+
         this.responses = [];
         this.currentResponseIndex = -1;
         this.startTime = Date.now();
         this.currentView = 'assistant';
+    }
+
+    handleWizardCancel() {
+        this.currentView = 'main';
     }
 
     async handleAPIKeyHelp() {
@@ -330,6 +559,11 @@ export class CheatingDaddyApp extends LitElement {
 
     // Assistant view event handlers
     async handleSendText(message) {
+        // Capture the question in response context
+        if (window.responseContext) {
+            window.responseContext.captureQuestion(message);
+        }
+
         const result = await window.cheddar.sendTextMessage(message);
 
         if (!result.success) {
@@ -437,12 +671,24 @@ export class CheatingDaddyApp extends LitElement {
             case 'advanced':
                 return html` <advanced-view></advanced-view> `;
 
+            case 'wizard':
+                return html`
+                    <launch-wizard
+                        .profile=${this.selectedProfile}
+                        .language=${this.selectedLanguage}
+                        .onComplete=${(mediaStreams) => this.handleWizardComplete({ detail: mediaStreams })}
+                        .onCancel=${() => this.handleWizardCancel()}
+                    ></launch-wizard>
+                `;
+
             case 'assistant':
                 return html`
                     <assistant-view
                         .responses=${this.responses}
                         .currentResponseIndex=${this.currentResponseIndex}
                         .selectedProfile=${this.selectedProfile}
+                        .startTime=${this.startTime}
+                        .screenshotInterval=${this.selectedScreenshotInterval}
                         .onSendText=${message => this.handleSendText(message)}
                         .shouldAnimateResponse=${this.shouldAnimateResponse}
                         @response-index-changed=${this.handleResponseIndexChanged}
@@ -455,6 +701,9 @@ export class CheatingDaddyApp extends LitElement {
                     ></assistant-view>
                 `;
 
+            case 'documents':
+                return html` <documents-view></documents-view> `;
+
             default:
                 return html`<div>Unknown view: ${this.currentView}</div>`;
         }
@@ -462,7 +711,10 @@ export class CheatingDaddyApp extends LitElement {
 
     render() {
         const mainContentClass = `main-content ${
-            this.currentView === 'assistant' ? 'assistant-view' : this.currentView === 'onboarding' ? 'onboarding-view' : 'with-border'
+            this.currentView === 'assistant' ? 'assistant-view' :
+            this.currentView === 'onboarding' ? 'onboarding-view' :
+            this.currentView === 'wizard' ? 'wizard-view' :
+            'with-border'
         }`;
 
         return html`
@@ -476,6 +728,7 @@ export class CheatingDaddyApp extends LitElement {
                         .onCustomizeClick=${() => this.handleCustomizeClick()}
                         .onHelpClick=${() => this.handleHelpClick()}
                         .onHistoryClick=${() => this.handleHistoryClick()}
+                        .onDocumentsClick=${() => this.handleDocumentsClick()}
                         .onAdvancedClick=${() => this.handleAdvancedClick()}
                         .onCloseClick=${() => this.handleClose()}
                         .onBackClick=${() => this.handleBackClick()}
@@ -486,6 +739,46 @@ export class CheatingDaddyApp extends LitElement {
                         <div class="view-container">${this.renderCurrentView()}</div>
                     </div>
                 </div>
+
+                <!-- Error Notifications -->
+                <error-notification></error-notification>
+
+                <!-- Reconnection Overlay -->
+                ${this.showReconnectionOverlay ? html`
+                    <reconnection-overlay
+                        .reconnectionAttempt=${this.reconnectionData.attempt}
+                        .maxAttempts=${this.reconnectionData.maxAttempts}
+                        .secondsUntilRetry=${this.reconnectionData.secondsUntilRetry}
+                        .isRetrying=${this.reconnectionData.isRetrying}
+                        .hasError=${this.reconnectionData.hasError}
+                        .errorMessage=${this.reconnectionData.errorMessage}
+                        .onRetry=${() => this.handleReconnectionRetry()}
+                        .onCancel=${() => this.handleReconnectionCancel()}
+                    ></reconnection-overlay>
+                ` : ''}
+
+                <!-- Session End Dialog -->
+                ${this.showSessionEndDialog && this.sessionSummary ? html`
+                    <session-end-dialog
+                        .sessionDuration=${this.sessionSummary.duration}
+                        .totalResponses=${this.sessionSummary.totalResponses}
+                        .unsavedResponses=${this.sessionSummary.unsavedResponses}
+                        .topics=${this.sessionSummary.topics}
+                        .tokenUsage=${this.sessionSummary.tokenUsage}
+                        .responses=${this.responses}
+                        .sessionInfo=${{
+                            timestamp: this.startTime,
+                            startTime: this.startTime,
+                            endTime: Date.now(),
+                            topics: this.sessionSummary.topics
+                        }}
+                        .profile=${this.selectedProfile}
+                        .onExportPDF=${() => this.handleExportPDF()}
+                        .onSaveToHistory=${() => this.handleSaveToHistory()}
+                        .onEndWithoutSaving=${() => this.handleEndWithoutSaving()}
+                        .onCancel=${() => this.handleCancelSessionEnd()}
+                    ></session-end-dialog>
+                ` : ''}
             </div>
         `;
     }
