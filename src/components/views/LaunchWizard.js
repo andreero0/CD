@@ -16,15 +16,15 @@ export class LaunchWizard extends LitElement {
             position: fixed;
             top: 0;
             left: 0;
-            overflow: hidden;
+            overflow: auto;
         }
 
         .wizard-container {
             position: relative;
             width: 100%;
-            height: 100%;
+            min-height: 100%;
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            overflow: hidden;
+            overflow-y: auto;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -50,6 +50,8 @@ export class LaunchWizard extends LitElement {
         .wizard-content {
             max-width: 600px;
             width: 100%;
+            max-height: calc(100vh - 80px);
+            overflow-y: auto;
             background: rgba(255, 255, 255, 0.08);
             border: 1px solid rgba(255, 255, 255, 0.15);
             border-radius: 16px;
