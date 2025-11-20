@@ -8,6 +8,7 @@ const { setupGeminiIpcHandlers, stopMacOSAudioCapture, sendToRenderer } = requir
 const { initializeRandomProcessNames } = require('./utils/processRandomizer');
 const { applyAntiAnalysisMeasures } = require('./utils/stealthFeatures');
 const { getLocalConfig, writeConfig } = require('./config');
+const { setupRAGIpcHandlers } = require('./utils/ragIpc');
 
 const geminiSessionRef = { current: null };
 let mainWindow = null;
@@ -26,6 +27,7 @@ app.whenReady().then(async () => {
 
     createMainWindow();
     setupGeminiIpcHandlers(geminiSessionRef);
+    setupRAGIpcHandlers(); // Initialize RAG system IPC handlers
     setupGeneralIpcHandlers();
 });
 
