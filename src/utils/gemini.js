@@ -357,12 +357,23 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                 onmessage: function (message) {
                     console.log('----------------', message);
 
-                    if (message.serverContent?.inputTranscription?.results) {
-                        const newTranscript = formatSpeakerResults(message.serverContent.inputTranscription.results);
-                        currentTranscription += newTranscript;
+                    // Handle transcription updates (support both .results and .text formats)
+                    if (message.serverContent?.inputTranscription) {
+                        let newTranscript = '';
 
-                        // Send transcript update to renderer for UI display
-                        if (newTranscript.trim()) {
+                        // Format 1: Speaker diarization results (structured format)
+                        if (message.serverContent.inputTranscription.results) {
+                            newTranscript = formatSpeakerResults(message.serverContent.inputTranscription.results);
+                        }
+                        // Format 2: Simple text transcription (newer API format)
+                        else if (message.serverContent.inputTranscription.text) {
+                            newTranscript = message.serverContent.inputTranscription.text;
+                        }
+
+                        if (newTranscript && newTranscript.trim()) {
+                            currentTranscription += newTranscript + ' ';
+
+                            // Send transcript update to renderer for UI display
                             sendToRenderer('transcript-update', newTranscript);
                         }
                     }
