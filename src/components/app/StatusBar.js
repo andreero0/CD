@@ -292,7 +292,7 @@ export class StatusBar extends LitElement {
         const ipcRenderer = window.electron;
 
         // Listen for status updates to determine AI state
-        this._statusUpdateHandler = (_, status) => {
+        this._statusUpdateHandler = (status) => {
             this._updateAiStateFromStatus(status);
         };
 

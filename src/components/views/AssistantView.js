@@ -758,7 +758,7 @@ export class AssistantView extends LitElement {
                 this.scrollResponseDown();
             };
 
-            this.handleScreenshotCaptured = (event, imageData) => {
+            this.handleScreenshotCaptured = (imageData) => {
                 console.log('Screenshot captured');
                 const screenshotFeedback = this.shadowRoot.querySelector('screenshot-feedback');
                 if (screenshotFeedback) {
@@ -766,7 +766,7 @@ export class AssistantView extends LitElement {
                 }
             };
 
-            this.handleTranscriptUpdate = (event, transcript) => {
+            this.handleTranscriptUpdate = (transcript) => {
                 console.log('Transcript update:', transcript);
                 const transcriptPanel = this.shadowRoot.querySelector('transcript-panel');
                 if (transcriptPanel) {

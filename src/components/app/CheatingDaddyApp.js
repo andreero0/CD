@@ -169,24 +169,24 @@ export class CheatingDaddyApp extends LitElement {
         // Set up IPC listeners if needed
         if (window.electron) {
             const ipcRenderer = window.electron;
-            ipcRenderer.on('update-response', (_, response) => {
+            ipcRenderer.on('update-response', (response) => {
                 this.setResponse(response);
             });
-            ipcRenderer.on('update-status', (_, status) => {
+            ipcRenderer.on('update-status', (status) => {
                 this.setStatus(status);
             });
-            ipcRenderer.on('click-through-toggled', (_, isEnabled) => {
+            ipcRenderer.on('click-through-toggled', (isEnabled) => {
                 this._isClickThrough = isEnabled;
             });
 
             // Reconnection event listeners
-            ipcRenderer.on('reconnection-status', (_, data) => {
+            ipcRenderer.on('reconnection-status', (data) => {
                 this.showReconnectionOverlay = true;
                 this.reconnectionData = { ...data, hasError: false };
                 this.requestUpdate();
             });
 
-            ipcRenderer.on('reconnection-success', (_, data) => {
+            ipcRenderer.on('reconnection-success', (data) => {
                 this.showReconnectionOverlay = false;
                 this.addErrorNotification({
                     type: 'info',
@@ -196,7 +196,7 @@ export class CheatingDaddyApp extends LitElement {
                 this.requestUpdate();
             });
 
-            ipcRenderer.on('reconnection-failed', (_, data) => {
+            ipcRenderer.on('reconnection-failed', (data) => {
                 this.reconnectionData = {
                     ...this.reconnectionData,
                     hasError: true,
@@ -205,7 +205,7 @@ export class CheatingDaddyApp extends LitElement {
                 this.requestUpdate();
             });
 
-            ipcRenderer.on('reconnection-error', (_, data) => {
+            ipcRenderer.on('reconnection-error', (data) => {
                 this.reconnectionData = {
                     ...data,
                     hasError: true,
