@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
     <head>
         <meta http-equiv="content-security-policy" content="script-src 'self' 'unsafe-inline'" />
         <title>Screen and Audio Capture</title>
@@ -97,6 +97,31 @@
                 width: 100%;
                 height: 100%;
             }
+
+            /* Accessibility: Visually hidden class for screen reader only content */
+            .visually-hidden {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                margin: -1px;
+                padding: 0;
+                overflow: hidden;
+                clip: rect(0, 0, 0, 0);
+                white-space: nowrap;
+                border: 0;
+            }
+
+            /* Accessibility: Disable all animations for users who prefer reduced motion */
+            @media (prefers-reduced-motion: reduce) {
+                *,
+                *::before,
+                *::after {
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                    scroll-behavior: auto !important;
+                }
+            }
         </style>
     </head>
     <body>
@@ -110,6 +135,8 @@
 
         <cheating-daddy-app id="cheddar"></cheating-daddy-app>
         <script src="script.js"></script>
+        <script src="utils/sessionStats.js"></script>
+        <script src="utils/responseContext.js"></script>
         <script src="utils/renderer.js"></script>
     </body>
 </html>

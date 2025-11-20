@@ -3,6 +3,7 @@ const { BrowserWindow, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const { saveDebugAudio } = require('../audioUtils');
 const { getSystemPrompt } = require('./prompts');
+const { processNewTurn, initializeRAG } = require('./ragController');
 
 // Conversation tracking variables
 let currentSessionId = null;
@@ -67,14 +68,19 @@ function sendToRenderer(channel, data) {
 }
 
 // Conversation management functions
-function initializeNewSession() {
+async function initializeNewSession() {
     currentSessionId = Date.now().toString();
     currentTranscription = '';
     conversationHistory = [];
     console.log('New conversation session started:', currentSessionId);
+
+    // Initialize RAG system (async, non-blocking)
+    initializeRAG().catch(error => {
+        console.error('Error initializing RAG system:', error);
+    });
 }
 
-function saveConversationTurn(transcription, aiResponse) {
+async function saveConversationTurn(transcription, aiResponse) {
     if (!currentSessionId) {
         initializeNewSession();
     }
@@ -93,6 +99,11 @@ function saveConversationTurn(transcription, aiResponse) {
         sessionId: currentSessionId,
         turn: conversationTurn,
         fullHistory: conversationHistory,
+    });
+
+    // Process turn with RAG system (async, non-blocking)
+    processNewTurn(currentSessionId, conversationTurn).catch(error => {
+        console.error('Error processing turn with RAG:', error);
     });
 }
 
@@ -196,6 +207,10 @@ async function getStoredSetting(key, defaultValue) {
 async function attemptReconnection() {
     if (!lastSessionParams || reconnectionAttempts >= maxReconnectionAttempts) {
         console.log('Max reconnection attempts reached or no session params stored');
+        sendToRenderer('reconnection-failed', {
+            reason: 'max_attempts',
+            message: 'Unable to reconnect after multiple attempts'
+        });
         sendToRenderer('update-status', 'Session closed');
         return false;
     }
@@ -203,8 +218,19 @@ async function attemptReconnection() {
     reconnectionAttempts++;
     console.log(`Attempting reconnection ${reconnectionAttempts}/${maxReconnectionAttempts}...`);
 
+    // Calculate delay with exponential backoff
+    const currentDelay = reconnectionDelay * Math.pow(2, reconnectionAttempts - 1);
+
+    // Send reconnection status to UI
+    sendToRenderer('reconnection-status', {
+        attempt: reconnectionAttempts,
+        maxAttempts: maxReconnectionAttempts,
+        secondsUntilRetry: Math.ceil(currentDelay / 1000),
+        isRetrying: true
+    });
+
     // Wait before attempting reconnection
-    await new Promise(resolve => setTimeout(resolve, reconnectionDelay));
+    await new Promise(resolve => setTimeout(resolve, currentDelay));
 
     try {
         const session = await initializeGeminiSession(
@@ -220,6 +246,11 @@ async function attemptReconnection() {
             reconnectionAttempts = 0; // Reset counter on successful reconnection
             console.log('Live session reconnected');
 
+            // Send success status
+            sendToRenderer('reconnection-success', {
+                message: 'Session restored successfully'
+            });
+
             // Send context message with previous transcriptions
             await sendReconnectionContext();
 
@@ -227,6 +258,13 @@ async function attemptReconnection() {
         }
     } catch (error) {
         console.error(`Reconnection attempt ${reconnectionAttempts} failed:`, error);
+
+        // Send error status
+        sendToRenderer('reconnection-error', {
+            attempt: reconnectionAttempts,
+            maxAttempts: maxReconnectionAttempts,
+            error: error.message
+        });
     }
 
     // If this attempt failed, try again
@@ -234,6 +272,10 @@ async function attemptReconnection() {
         return attemptReconnection();
     } else {
         console.log('All reconnection attempts failed');
+        sendToRenderer('reconnection-failed', {
+            reason: 'max_attempts',
+            message: 'Unable to reconnect after multiple attempts'
+        });
         sendToRenderer('update-status', 'Session closed');
         return false;
     }
@@ -317,7 +359,13 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     console.log('----------------', message);
 
                     if (message.serverContent?.inputTranscription?.results) {
-                        currentTranscription += formatSpeakerResults(message.serverContent.inputTranscription.results);
+                        const newTranscript = formatSpeakerResults(message.serverContent.inputTranscription.results);
+                        currentTranscription += newTranscript;
+
+                        // Send transcript update to renderer for UI display
+                        if (newTranscript.trim()) {
+                            sendToRenderer('transcript-update', newTranscript);
+                        }
                     }
 
                     // Handle AI model response

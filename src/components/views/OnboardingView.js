@@ -1,4 +1,5 @@
 import { html, css, LitElement } from '../../assets/lit-core-2.7.4.min.js';
+import { contextExamples } from '../../demoData.js';
 
 export class OnboardingView extends LitElement {
     static styles = css`
@@ -205,11 +206,145 @@ export class OnboardingView extends LitElement {
             background: rgba(255, 255, 255, 0.8);
             transform: scale(1.2);
         }
+
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            margin: -1px;
+            padding: 0;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        .api-key-input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #e5e5e5;
+            font-size: 14px;
+            font-family: inherit;
+            transition: all 0.2s ease;
+            margin-bottom: 12px;
+        }
+
+        .api-key-input::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        .api-key-input:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .api-key-input.error {
+            border-color: #ff4444;
+            background: rgba(255, 68, 68, 0.1);
+        }
+
+        .api-key-input.success {
+            border-color: #44ff88;
+            background: rgba(68, 255, 136, 0.1);
+        }
+
+        .error-message {
+            color: #ff6666;
+            font-size: 13px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .success-message {
+            color: #44ff88;
+            font-size: 13px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 8px;
+        }
+
+        .test-button, .skip-button {
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .test-button {
+            background: rgba(100, 150, 255, 0.15);
+            color: #88bbff;
+            flex: 1;
+        }
+
+        .test-button:hover:not(:disabled) {
+            background: rgba(100, 150, 255, 0.25);
+            border-color: rgba(100, 150, 255, 0.4);
+        }
+
+        .test-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .skip-button {
+            background: rgba(255, 255, 255, 0.05);
+            color: #b8b8b8;
+        }
+
+        .skip-button:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .warning-box {
+            background: rgba(255, 150, 50, 0.1);
+            border: 1px solid rgba(255, 150, 50, 0.3);
+            border-radius: 6px;
+            padding: 12px;
+            margin-top: 12px;
+            font-size: 13px;
+            color: #ffbb88;
+            line-height: 1.4;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #88bbff;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     `;
 
     static properties = {
         currentSlide: { type: Number },
         contextText: { type: String },
+        apiKey: { type: String },
+        apiKeyError: { type: String },
+        isTestingKey: { type: Boolean },
+        apiKeySuccess: { type: Boolean },
         onComplete: { type: Function },
         onClose: { type: Function },
     };
@@ -218,6 +353,10 @@ export class OnboardingView extends LitElement {
         super();
         this.currentSlide = 0;
         this.contextText = '';
+        this.apiKey = localStorage.getItem('apiKey') || '';
+        this.apiKeyError = '';
+        this.isTestingKey = false;
+        this.apiKeySuccess = false;
         this.onComplete = () => {};
         this.onClose = () => {};
         this.canvas = null;
@@ -284,7 +423,14 @@ export class OnboardingView extends LitElement {
         this.canvas = this.shadowRoot.querySelector('.gradient-canvas');
         this.ctx = this.canvas.getContext('2d');
         this.resizeCanvas();
-        this.startGradientAnimation();
+
+        // Only start animation if user doesn't prefer reduced motion
+        if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            this.startGradientAnimation();
+        } else {
+            // Show a static gradient instead
+            this.drawStaticGradient();
+        }
 
         window.addEventListener('resize', () => this.resizeCanvas());
     }
@@ -314,6 +460,40 @@ export class OnboardingView extends LitElement {
         };
 
         animate(0);
+    }
+
+    drawStaticGradient() {
+        if (!this.ctx || !this.canvas) return;
+
+        const { width, height } = this.canvas;
+        const colors = this.colorSchemes[this.currentSlide];
+
+        // Create a simple static linear gradient
+        const gradient = this.ctx.createLinearGradient(0, 0, width, height);
+
+        colors.forEach((color, index) => {
+            const offset = index / (colors.length - 1);
+            gradient.addColorStop(offset, `rgb(${color[0]}, ${color[1]}, ${color[2]})`);
+        });
+
+        this.ctx.fillStyle = gradient;
+        this.ctx.fillRect(0, 0, width, height);
+
+        // Add a subtle radial gradient overlay
+        const centerX = width * 0.5;
+        const centerY = height * 0.5;
+        const radius = Math.max(width, height) * 0.8;
+
+        const radialGradient = this.ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+
+        radialGradient.addColorStop(0, `rgba(${colors[0][0] + 10}, ${colors[0][1] + 10}, ${colors[0][2] + 10}, 0.1)`);
+        radialGradient.addColorStop(0.5, `rgba(${colors[2][0]}, ${colors[2][1]}, ${colors[2][2]}, 0.05)`);
+        radialGradient.addColorStop(1, `rgba(${colors[colors.length - 1][0]}, ${colors[colors.length - 1][1]}, ${colors[colors.length - 1][2]}, 0.03)`);
+
+        this.ctx.globalCompositeOperation = 'overlay';
+        this.ctx.fillStyle = radialGradient;
+        this.ctx.fillRect(0, 0, width, height);
+        this.ctx.globalCompositeOperation = 'source-over';
     }
 
     drawGradient(timestamp) {
@@ -388,7 +568,12 @@ export class OnboardingView extends LitElement {
         if (this.currentSlide < 4) {
             this.startColorTransition(this.currentSlide + 1);
         } else {
-            this.completeOnboarding();
+            // On the last slide (API key), require validation before completing
+            if (this.apiKeySuccess) {
+                this.completeOnboarding();
+            } else {
+                this.apiKeyError = 'Please test your API key or skip to continue';
+            }
         }
     }
 
@@ -401,8 +586,14 @@ export class OnboardingView extends LitElement {
     startColorTransition(newSlide) {
         this.previousColorScheme = [...this.colorSchemes[this.currentSlide]];
         this.currentSlide = newSlide;
-        this.isTransitioning = true;
-        this.transitionStartTime = performance.now();
+
+        // If user prefers reduced motion, just redraw the static gradient
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            this.drawStaticGradient();
+        } else {
+            this.isTransitioning = true;
+            this.transitionStartTime = performance.now();
+        }
     }
 
     // Interpolate between two color schemes
@@ -424,6 +615,95 @@ export class OnboardingView extends LitElement {
 
     handleContextInput(e) {
         this.contextText = e.target.value;
+    }
+
+    handleApiKeyInput(e) {
+        this.apiKey = e.target.value;
+        this.apiKeyError = '';
+        this.apiKeySuccess = false;
+        localStorage.setItem('apiKey', e.target.value);
+    }
+
+    validateApiKeyFormat(key) {
+        // Gemini API keys typically start with "AIza" and are 39 characters long
+        // Format: AIza[35 alphanumeric characters, hyphens, or underscores]
+        if (!key || key.trim() === '') {
+            return { valid: false, error: 'API key is required' };
+        }
+
+        const trimmedKey = key.trim();
+
+        // Check if it starts with AIza
+        if (!trimmedKey.startsWith('AIza')) {
+            return { valid: false, error: 'Invalid API key format. Gemini keys start with "AIza"' };
+        }
+
+        // Check length (should be 39 characters)
+        if (trimmedKey.length !== 39) {
+            return { valid: false, error: `Invalid API key length. Expected 39 characters, got ${trimmedKey.length}` };
+        }
+
+        // Check for valid characters (alphanumeric, hyphens, underscores)
+        const validChars = /^AIza[A-Za-z0-9_-]{35}$/;
+        if (!validChars.test(trimmedKey)) {
+            return { valid: false, error: 'API key contains invalid characters' };
+        }
+
+        return { valid: true };
+    }
+
+    async testApiKey() {
+        const validation = this.validateApiKeyFormat(this.apiKey);
+
+        if (!validation.valid) {
+            this.apiKeyError = validation.error;
+            return;
+        }
+
+        this.isTestingKey = true;
+        this.apiKeyError = '';
+        this.apiKeySuccess = false;
+
+        try {
+            // Test the API key by attempting to initialize a session
+            if (window.electron && window.electron.ipcRenderer) {
+                const result = await window.electron.ipcRenderer.invoke(
+                    'initialize-gemini',
+                    this.apiKey.trim(),
+                    '', // no custom prompt
+                    'interview', // default profile
+                    'en-US' // default language
+                );
+
+                if (result) {
+                    this.apiKeySuccess = true;
+                    this.apiKeyError = '';
+                    localStorage.setItem('apiKey', this.apiKey.trim());
+
+                    // Close the test session immediately
+                    await window.electron.ipcRenderer.invoke('close-session');
+                } else {
+                    this.apiKeyError = 'Failed to connect with this API key. Please check if it\'s valid.';
+                    this.apiKeySuccess = false;
+                }
+            } else {
+                // Fallback if electron is not available
+                this.apiKeyError = 'Unable to test API key in current environment';
+            }
+        } catch (error) {
+            console.error('Error testing API key:', error);
+            this.apiKeyError = error.message || 'Failed to test API key. Please verify it\'s correct.';
+            this.apiKeySuccess = false;
+        } finally {
+            this.isTestingKey = false;
+        }
+    }
+
+    skipApiKey() {
+        // Allow user to skip, but clear any stored API key
+        this.apiKey = '';
+        localStorage.removeItem('apiKey');
+        this.completeOnboarding();
     }
 
     completeOnboarding() {
@@ -461,8 +741,9 @@ export class OnboardingView extends LitElement {
             },
             {
                 icon: 'assets/onboarding/ready.svg',
-                title: 'Ready to Go',
-                content: 'Add your Gemini API key in settings and start getting AI-powered assistance in real-time.',
+                title: 'Setup Your API Key',
+                content: 'Enter your Gemini API key to start getting AI-powered assistance in real-time.',
+                showApiKey: true,
             },
         ];
 
@@ -483,7 +764,9 @@ export class OnboardingView extends LitElement {
 
                     ${slide.showTextarea
                         ? html`
+                              <label for="onboarding-context-textarea" class="visually-hidden">Context information</label>
                               <textarea
+                                  id="onboarding-context-textarea"
                                   class="context-textarea"
                                   placeholder="Paste your resume, job description, or any relevant context here..."
                                   .value=${this.contextText}
@@ -509,11 +792,48 @@ export class OnboardingView extends LitElement {
                               </div>
                           `
                         : ''}
+                    ${slide.showApiKey
+                        ? html`
+                              <label for="onboarding-api-key-input" class="visually-hidden">Gemini API Key</label>
+                              <input
+                                  id="onboarding-api-key-input"
+                                  type="password"
+                                  class="api-key-input ${this.apiKeyError ? 'error' : ''} ${this.apiKeySuccess ? 'success' : ''}"
+                                  placeholder="Enter your Gemini API key (AIza...)"
+                                  .value=${this.apiKey}
+                                  @input=${this.handleApiKeyInput}
+                              />
+                              ${this.apiKeyError
+                                  ? html`<div class="error-message">⚠️ ${this.apiKeyError}</div>`
+                                  : ''}
+                              ${this.apiKeySuccess
+                                  ? html`<div class="success-message">✓ API key validated successfully!</div>`
+                                  : ''}
+                              <div class="button-group">
+                                  <button
+                                      class="test-button"
+                                      @click=${this.testApiKey}
+                                      ?disabled=${this.isTestingKey || !this.apiKey}
+                                  >
+                                      ${this.isTestingKey
+                                          ? html`<span class="spinner"></span> Testing...`
+                                          : 'Test API Key'
+                                      }
+                                  </button>
+                                  <button class="skip-button" @click=${this.skipApiKey}>
+                                      Skip for now
+                                  </button>
+                              </div>
+                              <div class="warning-box">
+                                  <strong>Note:</strong> You can skip this step, but you'll need to add your API key later in settings before you can use the application.
+                              </div>
+                          `
+                        : ''}
                 </div>
 
                 <div class="navigation">
-                    <button class="nav-button" @click=${this.prevSlide} ?disabled=${this.currentSlide === 0}>
-                        <svg width="16px" height="16px" stroke-width="2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <button class="nav-button" @click=${this.prevSlide} ?disabled=${this.currentSlide === 0} aria-label="Previous slide">
+                        <svg width="16px" height="16px" stroke-width="2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                             <path d="M15 6L9 12L15 18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"></path>
                         </svg>
                     </button>
@@ -533,11 +853,11 @@ export class OnboardingView extends LitElement {
                         )}
                     </div>
 
-                    <button class="nav-button" @click=${this.nextSlide}>
+                    <button class="nav-button" @click=${this.nextSlide} aria-label="${this.currentSlide === 4 ? 'Complete onboarding' : 'Next slide'}">
                         ${this.currentSlide === 4
-                            ? 'Get Started'
+                            ? this.apiKeySuccess ? 'Complete Setup' : 'Complete'
                             : html`
-                                  <svg width="16px" height="16px" stroke-width="2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <svg width="16px" height="16px" stroke-width="2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                                       <path d="M9 6L15 12L9 18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"></path>
                                   </svg>
                               `}

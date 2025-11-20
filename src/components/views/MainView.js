@@ -11,7 +11,7 @@ export class MainView extends LitElement {
 
         .welcome {
             font-size: 24px;
-            margin-bottom: 8px;
+            margin-bottom: 16px;
             font-weight: 600;
             margin-top: auto;
         }
@@ -118,7 +118,7 @@ export class MainView extends LitElement {
         .description {
             color: var(--description-color);
             font-size: 14px;
-            margin-bottom: 24px;
+            margin-bottom: 20px;
             line-height: 1.5;
         }
 
@@ -132,6 +132,80 @@ export class MainView extends LitElement {
             color: var(--description-color);
             font-size: 11px;
             opacity: 0.8;
+        }
+
+        .demo-button {
+            background: rgba(100, 150, 255, 0.15);
+            color: #88bbff;
+            border: 1px solid rgba(100, 150, 255, 0.3);
+            padding: 12px 14px;
+            width: 100%;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-bottom: 16px;
+        }
+
+        .demo-button:hover {
+            background: rgba(100, 150, 255, 0.25);
+            border-color: rgba(100, 150, 255, 0.5);
+        }
+
+        .demo-button:active {
+            transform: scale(0.98);
+        }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            margin: 16px 0;
+            color: var(--description-color);
+            font-size: 12px;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid var(--button-border);
+        }
+
+        .divider::before {
+            margin-right: 12px;
+        }
+
+        .divider::after {
+            margin-left: 12px;
+        }
+
+        .demo-info {
+            font-size: 12px;
+            color: #b8b8b8;
+            margin-top: 16px;
+            line-height: 1.5;
+            padding: 12px;
+            background: rgba(0, 122, 255, 0.08);
+            border-radius: 6px;
+            border-left: 3px solid rgba(0, 122, 255, 0.5);
+        }
+
+        .demo-info strong {
+            color: #4da3ff;
+        }
+
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            margin: -1px;
+            padding: 0;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
         }
 
         :host {
@@ -149,6 +223,7 @@ export class MainView extends LitElement {
         isInitializing: { type: Boolean },
         onLayoutModeChange: { type: Function },
         showApiKeyError: { type: Boolean },
+        onStartDemo: { type: Function },
     };
 
     constructor() {
@@ -158,6 +233,7 @@ export class MainView extends LitElement {
         this.isInitializing = false;
         this.onLayoutModeChange = () => {};
         this.showApiKeyError = false;
+        this.onStartDemo = () => {};
         this.boundKeydownHandler = this.handleKeydown.bind(this);
     }
 
@@ -210,6 +286,13 @@ export class MainView extends LitElement {
 
     handleAPIKeyHelpClick() {
         this.onAPIKeyHelp();
+    }
+
+    handleDemoClick() {
+        if (this.isInitializing) {
+            return;
+        }
+        this.onStartDemo();
     }
 
     handleResetOnboarding() {
@@ -285,9 +368,17 @@ export class MainView extends LitElement {
         return html`
             <div class="welcome">Welcome</div>
 
+            <button @click=${this.handleDemoClick} class="demo-button">
+                Try Demo (No API Key Required)
+            </button>
+
+            <div class="divider">or</div>
+
             <div class="input-group">
+                <label for="api-key-input" class="visually-hidden">Gemini API Key</label>
                 <input
                     type="password"
+                    id="api-key-input"
                     placeholder="Enter your Gemini API Key"
                     .value=${localStorage.getItem('apiKey') || ''}
                     @input=${this.handleInput}
@@ -299,8 +390,12 @@ export class MainView extends LitElement {
             </div>
             <p class="description">
                 dont have an api key?
-                <span @click=${this.handleAPIKeyHelpClick} class="link">get one here</span>
+                <button @click=${this.handleAPIKeyHelpClick} class="link" style="background: none; border: none; padding: 0; font: inherit; cursor: pointer;">get one here</button>
             </p>
+
+            <div class="demo-info">
+                <strong>Demo Mode:</strong> Experience the app's capabilities with pre-recorded sample responses. See how context improves AI answers without needing an API key.
+            </div>
         `;
     }
 }

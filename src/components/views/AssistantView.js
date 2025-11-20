@@ -1,4 +1,8 @@
 import { html, css, LitElement } from '../../assets/lit-core-2.7.4.min.js';
+import { StatusBar } from '../app/StatusBar.js';
+import { ScreenshotFeedback } from './ScreenshotFeedback.js';
+import { TranscriptPanel } from './TranscriptPanel.js';
+import { ViewModeSwitcher } from './ViewModeSwitcher.js';
 
 export class AssistantView extends LitElement {
     static styles = css`
@@ -6,6 +10,7 @@ export class AssistantView extends LitElement {
             height: 100%;
             display: flex;
             flex-direction: column;
+            position: relative;
         }
 
         * {
@@ -13,8 +18,33 @@ export class AssistantView extends LitElement {
             cursor: default;
         }
 
+        .assistant-content {
+            display: flex;
+            gap: 12px;
+            height: calc(100% - 100px);
+            flex: 1;
+        }
+
+        .main-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .transcript-section {
+            width: 320px;
+            transition: all 0.3s ease-out;
+        }
+
+        .transcript-section.hidden {
+            width: 0;
+            overflow: hidden;
+            opacity: 0;
+        }
+
         .response-container {
-            height: calc(100% - 60px);
+            flex: 1;
             overflow-y: auto;
             border-radius: 10px;
             font-size: var(--response-font-size, 18px);
@@ -289,6 +319,190 @@ export class AssistantView extends LitElement {
         .save-button svg {
             stroke: currentColor !important;
         }
+
+        /* View Mode Styles */
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            margin-bottom: 8px;
+        }
+
+        .toolbar.minimal-mode {
+            display: none;
+        }
+
+        /* Minimal Mode - Clean, distraction-free */
+        :host(.minimal-mode) .assistant-content {
+            height: calc(100% - 80px);
+        }
+
+        :host(.minimal-mode) .response-container {
+            font-size: var(--response-font-size, 24px);
+            padding: 32px;
+        }
+
+        :host(.minimal-mode) .text-input-container {
+            opacity: 0.3;
+            transition: opacity 0.3s ease;
+        }
+
+        :host(.minimal-mode) .text-input-container:hover {
+            opacity: 1;
+        }
+
+        /* Detailed Mode - All metadata visible */
+        .response-metadata {
+            display: none;
+            background: var(--input-background);
+            border: 1px solid var(--button-border);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+            font-size: 13px;
+        }
+
+        :host(.detailed-mode) .response-metadata {
+            display: block;
+        }
+
+        .metadata-question {
+            font-weight: 600;
+            color: var(--text-color);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .metadata-timing {
+            display: flex;
+            gap: 16px;
+            color: var(--description-color);
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+
+        .metadata-tags {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .tag {
+            background: var(--focus-border-color);
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .action-buttons {
+            display: none;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        :host(.detailed-mode) .action-buttons {
+            display: flex;
+        }
+
+        .action-btn {
+            background: var(--input-background);
+            color: var(--text-color);
+            border: 1px solid var(--button-border);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .action-btn:hover {
+            background: var(--input-focus-background);
+            border-color: var(--focus-border-color);
+        }
+
+        /* Split-Screen Mode - List + Detail */
+        :host(.split-mode) .assistant-content {
+            flex-direction: row;
+            gap: 16px;
+        }
+
+        .response-list {
+            display: none;
+            width: 300px;
+            background: var(--input-background);
+            border-radius: 10px;
+            padding: 12px;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        :host(.split-mode) .response-list {
+            display: block;
+        }
+
+        .response-list-header {
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 12px;
+            color: var(--text-color);
+        }
+
+        .response-list-item {
+            background: var(--main-content-background);
+            border: 1px solid var(--button-border);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .response-list-item:hover {
+            border-color: var(--focus-border-color);
+            background: var(--input-focus-background);
+        }
+
+        .response-list-item.active {
+            border-color: var(--focus-border-color);
+            background: var(--input-focus-background);
+            box-shadow: 0 0 0 2px var(--focus-box-shadow);
+        }
+
+        .list-item-question {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-color);
+            margin-bottom: 4px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .list-item-preview {
+            font-size: 11px;
+            color: var(--description-color);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .list-item-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: var(--description-color);
+            margin-top: 6px;
+        }
+
+        :host(.split-mode) .main-section {
+            flex: 1;
+            min-width: 0;
+        }
     `;
 
     static properties = {
@@ -298,6 +512,10 @@ export class AssistantView extends LitElement {
         onSendText: { type: Function },
         shouldAnimateResponse: { type: Boolean },
         savedResponses: { type: Array },
+        startTime: { type: Number },
+        screenshotInterval: { type: String },
+        showTranscript: { type: Boolean },
+        viewMode: { type: String },
     };
 
     constructor() {
@@ -307,12 +525,17 @@ export class AssistantView extends LitElement {
         this.selectedProfile = 'interview';
         this.onSendText = () => {};
         this._lastAnimatedWordCount = 0;
+        this.startTime = 0;
+        this.screenshotInterval = '5';
+        this.showTranscript = localStorage.getItem('showTranscript') !== 'false'; // Show by default
+        this.viewMode = localStorage.getItem('viewMode') || 'minimal';
         // Load saved responses from localStorage
         try {
             this.savedResponses = JSON.parse(localStorage.getItem('savedResponses') || '[]');
         } catch (e) {
             this.savedResponses = [];
         }
+        this.boundKeyHandler = this.handleViewModeKeyboard.bind(this);
     }
 
     getProfileNames() {
@@ -469,11 +692,47 @@ export class AssistantView extends LitElement {
         }
     }
 
+    handleViewModeKeyboard(e) {
+        // Only trigger if not typing in an input
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+            return;
+        }
+
+        // M for Minimal, D for Detailed, S for Split
+        if (e.key.toLowerCase() === 'm') {
+            this.handleViewModeChange('minimal');
+        } else if (e.key.toLowerCase() === 'd') {
+            this.handleViewModeChange('detailed');
+        } else if (e.key.toLowerCase() === 's') {
+            this.handleViewModeChange('split');
+        }
+    }
+
+    handleViewModeChange(mode) {
+        this.viewMode = mode;
+        localStorage.setItem('viewMode', mode);
+        this.updateViewModeClass();
+        this.requestUpdate();
+    }
+
+    updateViewModeClass() {
+        // Remove all mode classes
+        this.classList.remove('minimal-mode', 'detailed-mode', 'split-mode');
+        // Add current mode class
+        this.classList.add(`${this.viewMode}-mode`);
+    }
+
     connectedCallback() {
         super.connectedCallback();
 
         // Load and apply font size
         this.loadFontSize();
+
+        // Apply view mode class
+        this.updateViewModeClass();
+
+        // Add keyboard listener for view mode shortcuts
+        document.addEventListener('keydown', this.boundKeyHandler);
 
         // Set up IPC listeners for keyboard shortcuts
         if (window.require) {
@@ -499,15 +758,36 @@ export class AssistantView extends LitElement {
                 this.scrollResponseDown();
             };
 
+            this.handleScreenshotCaptured = (event, imageData) => {
+                console.log('Screenshot captured');
+                const screenshotFeedback = this.shadowRoot.querySelector('screenshot-feedback');
+                if (screenshotFeedback) {
+                    screenshotFeedback.captureScreenshot(imageData);
+                }
+            };
+
+            this.handleTranscriptUpdate = (event, transcript) => {
+                console.log('Transcript update:', transcript);
+                const transcriptPanel = this.shadowRoot.querySelector('transcript-panel');
+                if (transcriptPanel) {
+                    transcriptPanel.parseAndAddTranscript(transcript);
+                }
+            };
+
             ipcRenderer.on('navigate-previous-response', this.handlePreviousResponse);
             ipcRenderer.on('navigate-next-response', this.handleNextResponse);
             ipcRenderer.on('scroll-response-up', this.handleScrollUp);
             ipcRenderer.on('scroll-response-down', this.handleScrollDown);
+            ipcRenderer.on('screenshot-captured', this.handleScreenshotCaptured);
+            ipcRenderer.on('transcript-update', this.handleTranscriptUpdate);
         }
     }
 
     disconnectedCallback() {
         super.disconnectedCallback();
+
+        // Remove keyboard listener
+        document.removeEventListener('keydown', this.boundKeyHandler);
 
         // Clean up IPC listeners
         if (window.require) {
@@ -524,7 +804,19 @@ export class AssistantView extends LitElement {
             if (this.handleScrollDown) {
                 ipcRenderer.removeListener('scroll-response-down', this.handleScrollDown);
             }
+            if (this.handleScreenshotCaptured) {
+                ipcRenderer.removeListener('screenshot-captured', this.handleScreenshotCaptured);
+            }
+            if (this.handleTranscriptUpdate) {
+                ipcRenderer.removeListener('transcript-update', this.handleTranscriptUpdate);
+            }
         }
+    }
+
+    toggleTranscript() {
+        this.showTranscript = !this.showTranscript;
+        localStorage.setItem('showTranscript', this.showTranscript.toString());
+        this.requestUpdate();
     }
 
     async handleSendText() {
@@ -574,6 +866,10 @@ export class AssistantView extends LitElement {
         return this.savedResponses.some(saved => saved.response === currentResponse);
     }
 
+    prefersReducedMotion() {
+        return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }
+
     firstUpdated() {
         super.firstUpdated();
         this.updateResponseContent();
@@ -589,6 +885,49 @@ export class AssistantView extends LitElement {
         }
     }
 
+    getResponseContext(index) {
+        if (!window.responseContext) return null;
+        const responseId = `response_${index}`;
+        return window.responseContext.getContext(responseId);
+    }
+
+    handleCopyResponse() {
+        const currentResponse = this.getCurrentResponse();
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(currentResponse);
+        }
+    }
+
+    handleExportResponse() {
+        const currentResponse = this.getCurrentResponse();
+        const context = this.getResponseContext(this.currentResponseIndex);
+
+        const exportData = {
+            question: context?.question || 'Voice/Screen Question',
+            answer: currentResponse,
+            timestamp: new Date().toISOString(),
+            tags: context?.tags || [],
+        };
+
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `response_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    handleSelectResponse(index) {
+        this.currentResponseIndex = index;
+        this.dispatchEvent(
+            new CustomEvent('response-index-changed', {
+                detail: { index },
+            })
+        );
+        this.requestUpdate();
+    }
+
     updateResponseContent() {
         console.log('updateResponseContent called');
         const container = this.shadowRoot.querySelector('#responseContainer');
@@ -599,7 +938,11 @@ export class AssistantView extends LitElement {
             console.log('Rendered response:', renderedResponse);
             container.innerHTML = renderedResponse;
             const words = container.querySelectorAll('[data-word]');
-            if (this.shouldAnimateResponse) {
+
+            // Skip animation if user prefers reduced motion
+            const shouldSkipAnimation = this.prefersReducedMotion();
+
+            if (this.shouldAnimateResponse && !shouldSkipAnimation) {
                 for (let i = 0; i < this._lastAnimatedWordCount && i < words.length; i++) {
                     words[i].classList.add('visible');
                 }
@@ -614,12 +957,104 @@ export class AssistantView extends LitElement {
                 }
                 this._lastAnimatedWordCount = words.length;
             } else {
+                // Instantly show all words if reduced motion is preferred or animation is disabled
                 words.forEach(word => word.classList.add('visible'));
                 this._lastAnimatedWordCount = words.length;
+                if (this.shouldAnimateResponse) {
+                    // Dispatch completion event immediately when animation is skipped
+                    this.dispatchEvent(new CustomEvent('response-animation-complete', { bubbles: true, composed: true }));
+                }
             }
         } else {
             console.log('Response container not found');
         }
+    }
+
+    renderMetadata() {
+        const context = this.getResponseContext(this.currentResponseIndex);
+        if (!context && !window.responseContext) return html``;
+
+        const question = context?.question || 'Voice/Screen Question';
+        const timeAgo = context ? window.responseContext.formatTimeAgo(context.askedAt) : 'Just now';
+        const genTime = context ? window.responseContext.formatGenerationTime(context.generationTime) : '0s';
+        const tags = context?.tags || [];
+
+        return html`
+            <div class="response-metadata">
+                <div class="metadata-question">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="12" cy="12" r="10" stroke-width="2"></circle>
+                        <path d="M9 9h6v6h-6z" stroke-width="2"></path>
+                    </svg>
+                    Question: "${question}"
+                </div>
+                <div class="metadata-timing">
+                    <span>Asked: ${timeAgo}</span>
+                    <span>Generated in: ${genTime}</span>
+                </div>
+                <div class="metadata-tags">
+                    ${tags.map(tag => html`<span class="tag">#${tag}</span>`)}
+                </div>
+            </div>
+        `;
+    }
+
+    renderActionButtons() {
+        return html`
+            <div class="action-buttons">
+                <button class="action-btn" @click=${this.handleCopyResponse} title="Copy response">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke-width="2"></path>
+                    </svg>
+                    Copy
+                </button>
+                <button class="action-btn" @click=${this.handleExportResponse} title="Export response">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke-width="2"></path>
+                        <polyline points="7 10 12 15 17 10" stroke-width="2"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3" stroke-width="2"></line>
+                    </svg>
+                    Export
+                </button>
+                <button class="action-btn saved" @click=${this.saveCurrentResponse} title="Star response">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="${this.isResponseSaved() ? 'currentColor' : 'none'}" stroke="currentColor">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" stroke-width="2"></polygon>
+                    </svg>
+                    Star
+                </button>
+            </div>
+        `;
+    }
+
+    renderResponseList() {
+        return html`
+            <div class="response-list">
+                <div class="response-list-header">Responses (${this.responses.length})</div>
+                ${this.responses.map((response, index) => {
+                    const context = this.getResponseContext(index);
+                    const question = context?.question || 'Voice/Screen Question';
+                    const preview = response.substring(0, 50) + (response.length > 50 ? '...' : '');
+                    const timeAgo = context && window.responseContext
+                        ? window.responseContext.formatTimeAgo(context.askedAt)
+                        : 'Recently';
+
+                    return html`
+                        <div
+                            class="response-list-item ${index === this.currentResponseIndex ? 'active' : ''}"
+                            @click=${() => this.handleSelectResponse(index)}
+                        >
+                            <div class="list-item-question">${question}</div>
+                            <div class="list-item-preview">${preview}</div>
+                            <div class="list-item-meta">
+                                <span>#${index + 1}</span>
+                                <span>${timeAgo}</span>
+                            </div>
+                        </div>
+                    `;
+                })}
+            </div>
+        `;
     }
 
     render() {
@@ -628,29 +1063,56 @@ export class AssistantView extends LitElement {
         const isSaved = this.isResponseSaved();
 
         return html`
-            <div class="response-container" id="responseContainer"></div>
+            <!-- Screenshot feedback overlay -->
+            <screenshot-feedback></screenshot-feedback>
+
+            <status-bar
+                .sessionStartTime=${this.startTime}
+                .screenshotInterval=${parseInt(this.screenshotInterval) || 5}
+                .responseCount=${this.responses.length}
+            ></status-bar>
+
+            <!-- Toolbar with view mode switcher -->
+            <div class="toolbar ${this.viewMode === 'minimal' ? 'minimal-mode' : ''}">
+                <view-mode-switcher
+                    .currentMode=${this.viewMode}
+                    .onModeChange=${(mode) => this.handleViewModeChange(mode)}
+                ></view-mode-switcher>
+            </div>
+
+            <div class="assistant-content">
+                <!-- Response list for split-screen mode -->
+                ${this.viewMode === 'split' ? this.renderResponseList() : ''}
+
+                <div class="main-section">
+                    <!-- Metadata for detailed mode -->
+                    ${this.viewMode === 'detailed' ? this.renderMetadata() : ''}
+
+                    <div
+                        class="response-container"
+                        id="responseContainer"
+                        role="status"
+                        aria-live="polite"
+                        aria-atomic="true"
+                        aria-label="AI response"
+                    ></div>
+
+                    <!-- Action buttons for detailed mode -->
+                    ${this.viewMode === 'detailed' ? this.renderActionButtons() : ''}
+                </div>
+
+                <!-- Transcript panel -->
+                <div class="transcript-section ${this.showTranscript ? '' : 'hidden'}">
+                    <transcript-panel></transcript-panel>
+                </div>
+            </div>
 
             <div class="text-input-container">
-                <button class="nav-button" @click=${this.navigateToPreviousResponse} ?disabled=${this.currentResponseIndex <= 0}>
-                    <?xml version="1.0" encoding="UTF-8"?><svg
-                        width="24px"
-                        height="24px"
-                        stroke-width="1.7"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        xmlns="http://www.w3.org/2000/svg"
-                        color="#ffffff"
-                    >
-                        <path d="M15 6L9 12L15 18" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
-                    </svg>
-                </button>
-
-                ${this.responses.length > 0 ? html` <span class="response-counter">${responseCounter}</span> ` : ''}
-
                 <button
-                    class="save-button ${isSaved ? 'saved' : ''}"
-                    @click=${this.saveCurrentResponse}
-                    title="${isSaved ? 'Response saved' : 'Save this response'}"
+                    class="nav-button"
+                    @click=${this.navigateToPreviousResponse}
+                    ?disabled=${this.currentResponseIndex <= 0}
+                    aria-label="Previous response"
                 >
                     <?xml version="1.0" encoding="UTF-8"?><svg
                         width="24px"
@@ -659,6 +1121,29 @@ export class AssistantView extends LitElement {
                         viewBox="0 0 24 24"
                         fill="none"
                         xmlns="http://www.w3.org/2000/svg"
+                        color="#ffffff"
+                        aria-hidden="true"
+                    >
+                        <path d="M15 6L9 12L15 18" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+                    </svg>
+                </button>
+
+                ${this.responses.length > 0 ? html` <span class="response-counter" role="status" aria-live="polite" aria-label="Response counter">${responseCounter}</span> ` : ''}
+
+                <button
+                    class="save-button ${isSaved ? 'saved' : ''}"
+                    @click=${this.saveCurrentResponse}
+                    title="${isSaved ? 'Response saved' : 'Save this response'}"
+                    aria-label="${isSaved ? 'Response saved' : 'Save this response'}"
+                >
+                    <?xml version="1.0" encoding="UTF-8"?><svg
+                        width="24px"
+                        height="24px"
+                        stroke-width="1.7"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        aria-hidden="true"
                     >
                         <path
                             d="M5 20V5C5 3.89543 5.89543 3 7 3H16.1716C16.702 3 17.2107 3.21071 17.5858 3.58579L19.4142 5.41421C19.7893 5.78929 20 6.29799 20 6.82843V20C20 21.1046 19.1046 22 18 22H7C5.89543 22 5 21 5 20Z"
@@ -672,9 +1157,29 @@ export class AssistantView extends LitElement {
                     </svg>
                 </button>
 
-                <input type="text" id="textInput" placeholder="Type a message to the AI..." @keydown=${this.handleTextKeydown} />
+                <button
+                    class="save-button"
+                    @click=${this.toggleTranscript}
+                    title="${this.showTranscript ? 'Hide transcript' : 'Show transcript'}"
+                    aria-label="${this.showTranscript ? 'Hide transcript' : 'Show transcript'}"
+                >
+                    <span style="font-size: 18px;">${this.showTranscript ? '📝' : '📄'}</span>
+                </button>
 
-                <button class="nav-button" @click=${this.navigateToNextResponse} ?disabled=${this.currentResponseIndex >= this.responses.length - 1}>
+                <input
+                    type="text"
+                    id="textInput"
+                    placeholder="Type a message to the AI..."
+                    @keydown=${this.handleTextKeydown}
+                    aria-label="Message input"
+                />
+
+                <button
+                    class="nav-button"
+                    @click=${this.navigateToNextResponse}
+                    ?disabled=${this.currentResponseIndex >= this.responses.length - 1}
+                    aria-label="Next response"
+                >
                     <?xml version="1.0" encoding="UTF-8"?><svg
                         width="24px"
                         height="24px"
@@ -683,6 +1188,7 @@ export class AssistantView extends LitElement {
                         fill="none"
                         xmlns="http://www.w3.org/2000/svg"
                         color="#ffffff"
+                        aria-hidden="true"
                     >
                         <path d="M9 6L15 12L9 18" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
                     </svg>
