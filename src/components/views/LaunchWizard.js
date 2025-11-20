@@ -16,20 +16,20 @@ export class LaunchWizard extends LitElement {
             position: fixed;
             top: 0;
             left: 0;
-            overflow: auto;
+            overflow: hidden;
         }
 
         .wizard-container {
             position: relative;
             width: 100%;
-            min-height: 100%;
+            height: 100%;
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            overflow-y: auto;
+            overflow: hidden;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 40px;
+            padding: 20px;
         }
 
         .progress-bar-container {
@@ -50,14 +50,15 @@ export class LaunchWizard extends LitElement {
         .wizard-content {
             max-width: 600px;
             width: 100%;
-            max-height: calc(100vh - 80px);
-            overflow-y: auto;
+            max-height: calc(100vh - 40px);
             background: rgba(255, 255, 255, 0.08);
             border: 1px solid rgba(255, 255, 255, 0.15);
             border-radius: 16px;
-            padding: 48px;
+            padding: 24px 32px;
             backdrop-filter: blur(10px);
             animation: slideUp 0.5s ease-out;
+            display: flex;
+            flex-direction: column;
         }
 
         @keyframes slideUp {
@@ -73,43 +74,47 @@ export class LaunchWizard extends LitElement {
 
         .step-indicator {
             text-align: center;
-            margin-bottom: 32px;
+            margin-bottom: 20px;
+            flex-shrink: 0;
         }
 
         .step-number {
-            font-size: 14px;
+            font-size: 12px;
             font-weight: 600;
             color: #4facfe;
             text-transform: uppercase;
             letter-spacing: 1px;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
 
         .step-title {
-            font-size: 32px;
+            font-size: 24px;
             font-weight: 700;
             color: #ffffff;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
         }
 
         .step-description {
-            font-size: 16px;
+            font-size: 14px;
             color: rgba(255, 255, 255, 0.7);
-            line-height: 1.6;
+            line-height: 1.5;
         }
 
         .checks-container {
-            margin: 32px 0;
+            margin: 16px 0;
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
         }
 
         .check-item {
             display: flex;
             align-items: center;
-            padding: 16px;
+            padding: 12px;
             background: rgba(255, 255, 255, 0.03);
             border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 8px;
-            margin-bottom: 12px;
+            margin-bottom: 10px;
             transition: all 0.3s ease;
         }
 
@@ -172,49 +177,56 @@ export class LaunchWizard extends LitElement {
             color: rgba(255, 255, 255, 0.6);
         }
 
+        .permissions-container {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            margin: 16px 0;
+        }
+
         .permission-card {
             background: rgba(255, 255, 255, 0.08);
             border: 1px solid rgba(255, 255, 255, 0.25);
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 20px;
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 12px;
         }
 
         .permission-title {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 600;
             color: #ffffff;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
         }
 
         .permission-description {
-            font-size: 14px;
+            font-size: 13px;
             color: rgba(255, 255, 255, 0.7);
-            line-height: 1.6;
-            margin-bottom: 16px;
+            line-height: 1.5;
+            margin-bottom: 12px;
         }
 
         .permission-example {
             background: rgba(0, 0, 0, 0.3);
-            border-radius: 8px;
-            padding: 16px;
-            margin-top: 12px;
+            border-radius: 6px;
+            padding: 10px;
+            margin-top: 10px;
         }
 
         .permission-example-title {
-            font-size: 13px;
+            font-size: 11px;
             font-weight: 600;
             color: rgba(255, 255, 255, 0.8);
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
 
         .permission-example-text {
-            font-size: 12px;
+            font-size: 11px;
             color: rgba(255, 255, 255, 0.6);
-            line-height: 1.5;
+            line-height: 1.4;
         }
 
         .countdown-container {
@@ -275,13 +287,14 @@ export class LaunchWizard extends LitElement {
 
         .wizard-actions {
             display: flex;
-            gap: 12px;
+            gap: 10px;
             justify-content: flex-end;
-            margin-top: 32px;
+            margin-top: 20px;
+            flex-shrink: 0;
         }
 
         .wizard-button {
-            padding: 12px 24px;
+            padding: 10px 20px;
             border-radius: 8px;
             font-size: 14px;
             font-weight: 600;
@@ -290,7 +303,7 @@ export class LaunchWizard extends LitElement {
             border: none;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
 
         .wizard-button:disabled {
@@ -333,24 +346,24 @@ export class LaunchWizard extends LitElement {
             background: rgba(255, 71, 87, 0.1);
             border: 1px solid rgba(255, 71, 87, 0.3);
             border-radius: 8px;
-            padding: 16px;
-            margin-top: 16px;
+            padding: 12px;
+            margin-top: 12px;
             color: #ff4757;
-            font-size: 14px;
+            font-size: 13px;
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
         }
 
         .info-box {
             background: rgba(79, 172, 254, 0.1);
             border: 1px solid rgba(79, 172, 254, 0.3);
             border-radius: 8px;
-            padding: 16px;
-            margin-top: 16px;
+            padding: 12px;
+            margin-top: 12px;
             color: #4facfe;
-            font-size: 14px;
-            line-height: 1.6;
+            font-size: 13px;
+            line-height: 1.5;
         }
 
         .permission-status {
@@ -792,71 +805,73 @@ export class LaunchWizard extends LitElement {
                 </div>
             </div>
 
-            <div class="permission-card">
-                <div class="permission-title">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <rect x="3" y="3" width="18" height="14" rx="2" stroke="currentColor" stroke-width="2"/>
-                        <path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                    </svg>
-                    Screen Sharing
-                    <span class="permission-status ${this.permissionStates.screen.status}">
-                        ${this.permissionStates.screen.status}
-                    </span>
-                </div>
-                <div class="permission-description">
-                    We need to capture your screen to provide AI assistance based on what you're seeing.
-                    This allows the AI to understand the context and provide relevant help.
-                </div>
-                <div class="permission-example">
-                    <div class="permission-example-title">What will be captured:</div>
-                    <div class="permission-example-text">
-                        • Screenshot of your screen at regular intervals<br>
-                        • Visual content to analyze questions and problems<br>
-                        • Your browser or application window content
-                    </div>
-                </div>
-            </div>
-
-            ${needsMicrophone ? html`
+            <div class="permissions-container">
                 <div class="permission-card">
                     <div class="permission-title">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <rect x="9" y="2" width="6" height="11" rx="3" stroke="currentColor" stroke-width="2"/>
-                            <path d="M5 10v2a7 7 0 0014 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <rect x="3" y="3" width="18" height="14" rx="2" stroke="currentColor" stroke-width="2"/>
+                            <path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                         </svg>
-                        Microphone Access
-                        <span class="permission-status ${this.permissionStates.microphone.status}">
-                            ${this.permissionStates.microphone.status}
+                        Screen Sharing
+                        <span class="permission-status ${this.permissionStates.screen.status}">
+                            ${this.permissionStates.screen.status}
                         </span>
                     </div>
                     <div class="permission-description">
-                        Microphone access allows you to ask questions verbally and have conversations with the AI assistant.
+                        We need to capture your screen to provide AI assistance based on what you're seeing.
+                        This allows the AI to understand the context and provide relevant help.
                     </div>
                     <div class="permission-example">
                         <div class="permission-example-title">What will be captured:</div>
                         <div class="permission-example-text">
-                            • Your voice input for questions<br>
-                            • Audio conversations during interviews<br>
-                            • Voice commands and queries
+                            • Screenshot of your screen at regular intervals<br>
+                            • Visual content to analyze questions and problems<br>
+                            • Your browser or application window content
                         </div>
                     </div>
                 </div>
-            ` : html`
-                <div class="info-box">
-                    <strong>Note:</strong> Microphone permission is not required for your current audio mode (${audioMode}).
-                    You can change this in the settings if needed.
-                </div>
-            `}
 
-            ${this.errorMessage ? html`
-                <div class="error-message">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
-                        <path d="M12 8v4M12 16h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                    </svg>
-                    ${this.errorMessage}
-                </div>
-            ` : ''}
+                ${needsMicrophone ? html`
+                    <div class="permission-card">
+                        <div class="permission-title">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <rect x="9" y="2" width="6" height="11" rx="3" stroke="currentColor" stroke-width="2"/>
+                                <path d="M5 10v2a7 7 0 0014 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            Microphone Access
+                            <span class="permission-status ${this.permissionStates.microphone.status}">
+                                ${this.permissionStates.microphone.status}
+                            </span>
+                        </div>
+                        <div class="permission-description">
+                            Microphone access allows you to ask questions verbally and have conversations with the AI assistant.
+                        </div>
+                        <div class="permission-example">
+                            <div class="permission-example-title">What will be captured:</div>
+                            <div class="permission-example-text">
+                                • Your voice input for questions<br>
+                                • Audio conversations during interviews<br>
+                                • Voice commands and queries
+                            </div>
+                        </div>
+                    </div>
+                ` : html`
+                    <div class="info-box">
+                        <strong>Note:</strong> Microphone permission is not required for your current audio mode (${audioMode}).
+                        You can change this in the settings if needed.
+                    </div>
+                `}
+
+                ${this.errorMessage ? html`
+                    <div class="error-message">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+                            <path d="M12 8v4M12 16h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                        ${this.errorMessage}
+                    </div>
+                ` : ''}
+            </div>
 
             <div class="wizard-actions">
                 <button class="wizard-button secondary" @click=${this.handleBack}>
