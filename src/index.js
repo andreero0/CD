@@ -153,7 +153,7 @@ function setupGeneralIpcHandlers() {
                 let contentProtection = contentProtectionValue;
 
                 if (contentProtection === undefined || contentProtection === null) {
-                    // Fallback: Get content protection setting from localStorage via cheddar
+                    // Fallback: Get content protection setting from localStorage via prism
                     contentProtection = await mainWindow.webContents.executeJavaScript('prism.getContentProtection()');
                 }
 

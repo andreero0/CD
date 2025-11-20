@@ -545,7 +545,7 @@ export class PrismApp extends LitElement {
     async handleAPIKeyHelp() {
         if (window.electron) {
             const ipcRenderer = window.electron;
-            await ipcRenderer.invoke('open-external', 'https://cheatingdaddy.com/help/api-key');
+            await ipcRenderer.invoke('open-external', 'https://aistudio.google.com/app/apikey');
         }
     }
 

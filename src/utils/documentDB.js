@@ -3,7 +3,7 @@
  * Stores document metadata, content, and chunks for RAG system
  */
 
-const DB_NAME = 'CheatingDaddyDocuments';
+const DB_NAME = 'PrismDocuments';
 const DB_VERSION = 1;
 const STORE_NAME = 'documents';
 
