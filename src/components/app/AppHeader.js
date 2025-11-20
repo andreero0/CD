@@ -95,6 +95,7 @@ export class AppHeader extends LitElement {
         onCustomizeClick: { type: Function },
         onHelpClick: { type: Function },
         onHistoryClick: { type: Function },
+        onDocumentsClick: { type: Function },
         onCloseClick: { type: Function },
         onBackClick: { type: Function },
         onHideToggleClick: { type: Function },
@@ -111,6 +112,7 @@ export class AppHeader extends LitElement {
         this.onCustomizeClick = () => {};
         this.onHelpClick = () => {};
         this.onHistoryClick = () => {};
+        this.onDocumentsClick = () => {};
         this.onCloseClick = () => {};
         this.onBackClick = () => {};
         this.onHideToggleClick = () => {};
@@ -207,13 +209,13 @@ export class AppHeader extends LitElement {
                 <div class="header-actions">
                     ${this.currentView === 'assistant'
                         ? html`
-                              <span>${elapsedTime}</span>
-                              <span>${this.statusText}</span>
+                              <span role="timer" aria-live="off" aria-label="Elapsed time">${elapsedTime}</span>
+                              <span role="status" aria-live="polite" aria-atomic="true" aria-label="Status">${this.statusText}</span>
                           `
                         : ''}
                     ${this.currentView === 'main'
                         ? html`
-                              <button class="icon-button" @click=${this.onHistoryClick}>
+                              <button class="icon-button" @click=${this.onHistoryClick} aria-label="View conversation history">
                                   <?xml version="1.0" encoding="UTF-8"?><svg
                                       width="24px"
                                       height="24px"
@@ -253,9 +255,49 @@ export class AppHeader extends LitElement {
                                       ></path>
                                   </svg>
                               </button>
+                              <button class="icon-button" @click=${this.onDocumentsClick} aria-label="Manage documents">
+                                  <?xml version="1.0" encoding="UTF-8"?><svg
+                                      width="24px"
+                                      height="24px"
+                                      stroke-width="1.7"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      color="currentColor"
+                                  >
+                                      <path
+                                          d="M9 12L11 14L15 10"
+                                          stroke="currentColor"
+                                          stroke-width="1.7"
+                                          stroke-linecap="round"
+                                          stroke-linejoin="round"
+                                      ></path>
+                                      <path
+                                          d="M20 12V5.74853C20 5.5894 19.9368 5.43679 19.8243 5.32426L16.6757 2.17574C16.5632 2.06321 16.4106 2 16.2515 2H4.6C4.26863 2 4 2.26863 4 2.6V21.4C4 21.7314 4.26863 22 4.6 22H11"
+                                          stroke="currentColor"
+                                          stroke-width="1.7"
+                                          stroke-linecap="round"
+                                          stroke-linejoin="round"
+                                      ></path>
+                                      <path
+                                          d="M16 2V5.4C16 5.73137 16.2686 6 16.6 6H20"
+                                          stroke="currentColor"
+                                          stroke-width="1.7"
+                                          stroke-linecap="round"
+                                          stroke-linejoin="round"
+                                      ></path>
+                                      <path
+                                          d="M15 19.5L18 22M18 22L21 19.5M18 22V16"
+                                          stroke="currentColor"
+                                          stroke-width="1.7"
+                                          stroke-linecap="round"
+                                          stroke-linejoin="round"
+                                      ></path>
+                                  </svg>
+                              </button>
                               ${this.advancedMode
                                   ? html`
-                                        <button class="icon-button" @click=${this.onAdvancedClick} title="Advanced Tools">
+                                        <button class="icon-button" @click=${this.onAdvancedClick} title="Advanced Tools" aria-label="Advanced Tools">
                                             <?xml version="1.0" encoding="UTF-8"?><svg
                                                 width="24px"
                                                 stroke-width="1.7"
@@ -298,7 +340,7 @@ export class AppHeader extends LitElement {
                                         </button>
                                     `
                                   : ''}
-                              <button class="icon-button" @click=${this.onCustomizeClick}>
+                              <button class="icon-button" @click=${this.onCustomizeClick} aria-label="Customize settings">
                                   <?xml version="1.0" encoding="UTF-8"?><svg
                                       width="24px"
                                       height="24px"
@@ -324,7 +366,7 @@ export class AppHeader extends LitElement {
                                       ></path>
                                   </svg>
                               </button>
-                              <button class="icon-button" @click=${this.onHelpClick}>
+                              <button class="icon-button" @click=${this.onHelpClick} aria-label="Help and shortcuts">
                                   <?xml version="1.0" encoding="UTF-8"?><svg
                                       width="24px"
                                       height="24px"
@@ -365,7 +407,7 @@ export class AppHeader extends LitElement {
                                   Hide&nbsp;&nbsp;<span class="key" style="pointer-events: none;">${cheddar.isMacOS ? 'Cmd' : 'Ctrl'}</span
                                   >&nbsp;&nbsp;<span class="key">&bsol;</span>
                               </button>
-                              <button @click=${this.onCloseClick} class="icon-button window-close">
+                              <button @click=${this.onCloseClick} class="icon-button window-close" aria-label="Close session">
                                   <?xml version="1.0" encoding="UTF-8"?><svg
                                       width="24px"
                                       height="24px"
@@ -386,7 +428,7 @@ export class AppHeader extends LitElement {
                               </button>
                           `
                         : html`
-                              <button @click=${this.isNavigationView() ? this.onBackClick : this.onCloseClick} class="icon-button window-close">
+                              <button @click=${this.isNavigationView() ? this.onBackClick : this.onCloseClick} class="icon-button window-close" aria-label="${this.isNavigationView() ? 'Go back' : 'Close application'}">
                                   <?xml version="1.0" encoding="UTF-8"?><svg
                                       width="24px"
                                       height="24px"

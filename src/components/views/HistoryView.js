@@ -1,5 +1,6 @@
 import { html, css, LitElement } from '../../assets/lit-core-2.7.4.min.js';
 import { resizeLayout } from '../../utils/windowResize.js';
+import { ExportDialog } from './ExportDialog.js';
 
 export class HistoryView extends LitElement {
     static styles = css`
@@ -310,6 +311,10 @@ export class HistoryView extends LitElement {
         loading: { type: Boolean },
         activeTab: { type: String },
         savedResponses: { type: Array },
+        showExportDialog: { type: Boolean, state: true },
+        exportResponses: { type: Array, state: true },
+        exportSessionInfo: { type: Object, state: true },
+        exportProfile: { type: String, state: true },
     };
 
     constructor() {
@@ -318,6 +323,10 @@ export class HistoryView extends LitElement {
         this.selectedSession = null;
         this.loading = true;
         this.activeTab = 'sessions';
+        this.showExportDialog = false;
+        this.exportResponses = [];
+        this.exportSessionInfo = {};
+        this.exportProfile = 'interview';
         // Load saved responses from localStorage
         try {
             this.savedResponses = JSON.parse(localStorage.getItem('savedResponses') || '[]');
@@ -400,6 +409,47 @@ export class HistoryView extends LitElement {
         this.requestUpdate();
     }
 
+    handleExportSavedResponses() {
+        this.exportResponses = this.savedResponses.map(saved => ({
+            content: saved.response,
+            timestamp: saved.timestamp,
+        }));
+        this.exportSessionInfo = {
+            timestamp: Date.now(),
+        };
+        this.exportProfile = this.savedResponses.length > 0 ? this.savedResponses[0].profile : 'interview';
+        this.showExportDialog = true;
+    }
+
+    handleExportSession() {
+        if (!this.selectedSession) return;
+
+        const { conversationHistory } = this.selectedSession;
+        const responses = [];
+
+        if (conversationHistory) {
+            conversationHistory.forEach(turn => {
+                if (turn.ai_response) {
+                    responses.push({
+                        content: turn.ai_response,
+                        timestamp: turn.timestamp,
+                    });
+                }
+            });
+        }
+
+        this.exportResponses = responses;
+        this.exportSessionInfo = {
+            timestamp: this.selectedSession.timestamp,
+        };
+        this.exportProfile = this.selectedSession.profile || 'interview';
+        this.showExportDialog = true;
+    }
+
+    handleCloseExportDialog() {
+        this.showExportDialog = false;
+    }
+
     getProfileNames() {
         return {
             interview: 'Job Interview',
@@ -429,13 +479,13 @@ export class HistoryView extends LitElement {
             <div class="sessions-list">
                 ${this.sessions.map(
                     session => html`
-                        <div class="session-item" @click=${() => this.handleSessionClick(session)}>
+                        <button class="session-item" @click=${() => this.handleSessionClick(session)}>
                             <div class="session-header">
                                 <div class="session-date">${this.formatDate(session.timestamp)}</div>
                                 <div class="session-time">${this.formatTime(session.timestamp)}</div>
                             </div>
                             <div class="session-preview">${this.getSessionPreview(session)}</div>
-                        </div>
+                        </button>
                     `
                 )}
             </div>
@@ -464,8 +514,8 @@ export class HistoryView extends LitElement {
                                     <div class="saved-response-profile">${profileNames[saved.profile] || saved.profile}</div>
                                     <div class="saved-response-date">${this.formatTimestamp(saved.timestamp)}</div>
                                 </div>
-                                <button class="delete-button" @click=${() => this.deleteSavedResponse(index)} title="Delete saved response">
-                                    <svg
+                                <button class="delete-button" @click=${() => this.deleteSavedResponse(index)} title="Delete saved response" aria-label="Delete saved response">
+                                    <svg aria-hidden="true"
                                         width="16px"
                                         height="16px"
                                         stroke-width="1.7"
@@ -533,6 +583,21 @@ export class HistoryView extends LitElement {
                     </svg>
                     Back to Sessions
                 </button>
+                <button class="back-button" @click=${this.handleExportSession} title="Export this session">
+                    <svg
+                        width="16px"
+                        height="16px"
+                        stroke-width="1.7"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        color="currentColor"
+                    >
+                        <path d="M6 20L18 20" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+                        <path d="M12 16V4M12 4L15.5 7.5M12 4L8.5 7.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+                    </svg>
+                    Export
+                </button>
                 <div class="legend">
                     <div class="legend-item">
                         <div class="legend-dot user"></div>
@@ -566,8 +631,30 @@ export class HistoryView extends LitElement {
                     <button class="tab ${this.activeTab === 'saved' ? 'active' : ''}" @click=${() => this.handleTabClick('saved')}>
                         Saved Responses (${this.savedResponses.length})
                     </button>
+                    ${this.activeTab === 'saved' && this.savedResponses.length > 0
+                        ? html`
+                              <button
+                                  class="tab"
+                                  @click=${this.handleExportSavedResponses}
+                                  style="margin-left: auto; background: var(--start-button-background); color: var(--start-button-color);"
+                                  title="Export all saved responses"
+                              >
+                                  Export All
+                              </button>
+                          `
+                        : ''}
                 </div>
                 ${this.activeTab === 'sessions' ? this.renderSessionsList() : this.renderSavedResponses()}
+                ${this.showExportDialog
+                    ? html`
+                          <export-dialog
+                              .responses=${this.exportResponses}
+                              .sessionInfo=${this.exportSessionInfo}
+                              .profile=${this.exportProfile}
+                              .onClose=${() => this.handleCloseExportDialog()}
+                          ></export-dialog>
+                      `
+                    : ''}
             </div>
         `;
     }
