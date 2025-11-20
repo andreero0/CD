@@ -188,8 +188,9 @@ export class AdvancedView extends LitElement {
         }
 
         .feature-list li::before {
-            content: '🔧';
-            font-size: 10px;
+            content: '•';
+            font-size: 14px;
+            font-weight: bold;
         }
 
         .form-grid {
@@ -390,12 +391,12 @@ export class AdvancedView extends LitElement {
                 await Promise.all(cacheNames.map(name => caches.delete(name)));
             }
 
-            this.statusMessage = `✅ Successfully cleared all local data (${databases.length} databases, localStorage, sessionStorage, and caches)`;
+            this.statusMessage = `Successfully cleared all local data (${databases.length} databases, localStorage, sessionStorage, and caches)`;
             this.statusType = 'success';
 
             // Notify user that app will close
             setTimeout(() => {
-                this.statusMessage = '🔄 Closing application...';
+                this.statusMessage = 'Closing application...';
                 this.requestUpdate();
                 setTimeout(async () => {
                     // Close the entire application
@@ -407,7 +408,7 @@ export class AdvancedView extends LitElement {
             }, 2000);
         } catch (error) {
             console.error('Error clearing data:', error);
-            this.statusMessage = `❌ Error clearing data: ${error.message}`;
+            this.statusMessage = `Error clearing data: ${error.message}`;
             this.statusType = 'error';
         } finally {
             this.isClearing = false;
@@ -497,7 +498,7 @@ export class AdvancedView extends LitElement {
                 <!-- Content Protection Section -->
                 <div class="advanced-section">
                     <div class="section-title">
-                        <span>🔒 Content Protection</span>
+                        <span>Content Protection</span>
                     </div>
                     <div class="advanced-description">
                         Content protection makes the application window invisible to screen sharing and recording software. 
@@ -528,11 +529,11 @@ export class AdvancedView extends LitElement {
                 <!-- Rate Limiting Section -->
                 <div class="advanced-section">
                     <div class="section-title">
-                        <span>⏱️ Rate Limiting</span>
+                        <span>Rate Limiting</span>
                     </div>
 
                     <div class="rate-limit-warning">
-                        <span class="rate-limit-warning-icon">⚠️</span>
+                        <span class="rate-limit-warning-icon">!</span>
                         <span
                             ><strong>Warning:</strong> Don't mess with these settings if you don't know what this is about. Incorrect rate limiting
                             settings may cause the application to stop working properly or hit API limits unexpectedly.</span
@@ -602,16 +603,16 @@ export class AdvancedView extends LitElement {
                 <!-- Data Management Section -->
                 <div class="advanced-section danger-section">
                     <div class="section-title danger">
-                        <span>🗑️ Data Management</span>
+                        <span>Data Management</span>
                     </div>
                     <div class="danger-box">
-                        <span class="danger-icon">⚠️</span>
+                        <span class="danger-icon">!</span>
                         <span><strong>Important:</strong> This action will permanently delete all local data and cannot be undone.</span>
                     </div>
 
                     <div>
                         <button class="action-button danger-button" @click=${this.clearLocalData} ?disabled=${this.isClearing}>
-                            ${this.isClearing ? '🔄 Clearing...' : '🗑️ Clear All Local Data'}
+                            ${this.isClearing ? 'Clearing...' : 'Clear All Local Data'}
                         </button>
 
                         ${this.statusMessage

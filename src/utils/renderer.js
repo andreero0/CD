@@ -22,15 +22,18 @@ let screenshotInterval = null;
 let audioContext = null;
 let audioProcessor = null;
 let micAudioProcessor = null;
-let audioBuffer = [];
+// Removed unused global audioBuffer - each audio processor uses its own local buffer
 const SAMPLE_RATE = 24000;
 const AUDIO_CHUNK_DURATION = 0.1; // seconds
 const BUFFER_SIZE = 4096; // Increased buffer size for smoother audio
+const MAX_AUDIO_BUFFER_SIZE = 100; // Maximum buffer size to prevent memory leaks (10 seconds of audio)
 
 let hiddenVideo = null;
 let offscreenCanvas = null;
 let offscreenContext = null;
 let currentImageQuality = 'medium'; // Store current image quality for manual screenshots
+let isCapturingScreenshot = false; // Prevent race conditions in screenshot capture
+let connectionStatus = 'disconnected'; // Track connection status for UI
 
 // SECURITY FIX: Use platform from exposed API
 const isLinux = window.electron.platform === 'linux';
@@ -113,8 +116,28 @@ let tokenTracker = {
 
         const currentTokens = this.getTokensInLastMinute();
         const throttleThreshold = Math.floor((maxTokensPerMin * throttleAtPercent) / 100);
+        const usagePercent = Math.round((currentTokens / maxTokensPerMin) * 100);
 
         console.log(`Token check: ${currentTokens}/${maxTokensPerMin} (throttle at ${throttleThreshold})`);
+
+        // Send visual warning to UI when approaching or at limit
+        if (currentTokens >= throttleThreshold) {
+            ipcRenderer.send('rate-limit-warning', {
+                current: currentTokens,
+                max: maxTokensPerMin,
+                percent: usagePercent,
+                message: `Approaching rate limit (${usagePercent}%) - slowing down screenshots`,
+            });
+
+            // Adaptive quality: reduce screenshot quality when throttling
+            if (usagePercent >= 90) {
+                currentImageQuality = 'low';
+                console.log('ADAPTIVE QUALITY: Reducing to LOW quality due to high token usage');
+            } else if (usagePercent >= 80) {
+                currentImageQuality = 'medium';
+                console.log('ADAPTIVE QUALITY: Reducing to MEDIUM quality due to token usage');
+            }
+        }
 
         return currentTokens >= throttleThreshold;
     },
@@ -167,6 +190,20 @@ async function initializeGemini(profile = 'interview', language = 'en-US') {
 ipcRenderer.on('update-status', (status) => {
     console.log('Status update:', status);
     cheddar.setStatus(status);
+
+    // Update connection status for UI
+    if (status === 'Live' || status === 'listening') {
+        connectionStatus = 'connected';
+    } else if (status === 'error' || status === 'disconnected') {
+        connectionStatus = 'disconnected';
+    } else if (status === 'connecting') {
+        connectionStatus = 'connecting';
+    }
+
+    // Broadcast connection status change
+    window.dispatchEvent(new CustomEvent('connection-status-changed', {
+        detail: { status: connectionStatus }
+    }));
 });
 
 // Listen for responses - REMOVED: This is handled in CheatingDaddyApp.js to avoid duplicates
@@ -182,7 +219,7 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
 
     // Reset token tracker when starting new capture session
     tokenTracker.reset();
-    console.log('🎯 Token tracker reset for new capture session');
+    console.log('Token tracker reset for new capture session');
 
     const audioMode = localStorage.getItem('audioMode') || 'speaker_only';
 
@@ -370,6 +407,12 @@ function setupLinuxMicProcessing(micStream) {
         const inputData = e.inputBuffer.getChannelData(0);
         audioBuffer.push(...inputData);
 
+        // Prevent memory leak: if buffer grows too large, remove oldest data
+        if (audioBuffer.length > MAX_AUDIO_BUFFER_SIZE * samplesPerChunk) {
+            console.warn('Audio buffer overflow detected, removing oldest data');
+            audioBuffer.splice(0, samplesPerChunk * 10); // Remove 1 second of old data
+        }
+
         // Process audio in chunks
         while (audioBuffer.length >= samplesPerChunk) {
             const chunk = audioBuffer.splice(0, samplesPerChunk);
@@ -403,6 +446,12 @@ function setupLinuxSystemAudioProcessing() {
         const inputData = e.inputBuffer.getChannelData(0);
         audioBuffer.push(...inputData);
 
+        // Prevent memory leak: if buffer grows too large, remove oldest data
+        if (audioBuffer.length > MAX_AUDIO_BUFFER_SIZE * samplesPerChunk) {
+            console.warn('Audio buffer overflow detected, removing oldest data');
+            audioBuffer.splice(0, samplesPerChunk * 10); // Remove 1 second of old data
+        }
+
         // Process audio in chunks
         while (audioBuffer.length >= samplesPerChunk) {
             const chunk = audioBuffer.splice(0, samplesPerChunk);
@@ -433,6 +482,12 @@ function setupWindowsLoopbackProcessing() {
         const inputData = e.inputBuffer.getChannelData(0);
         audioBuffer.push(...inputData);
 
+        // Prevent memory leak: if buffer grows too large, remove oldest data
+        if (audioBuffer.length > MAX_AUDIO_BUFFER_SIZE * samplesPerChunk) {
+            console.warn('Audio buffer overflow detected, removing oldest data');
+            audioBuffer.splice(0, samplesPerChunk * 10); // Remove 1 second of old data
+        }
+
         // Process audio in chunks
         while (audioBuffer.length >= samplesPerChunk) {
             const chunk = audioBuffer.splice(0, samplesPerChunk);
@@ -454,11 +509,20 @@ async function captureScreenshot(imageQuality = 'medium', isManual = false) {
     console.log(`Capturing ${isManual ? 'manual' : 'automated'} screenshot...`);
     if (!mediaStream) return;
 
-    // Check rate limiting for automated screenshots only
-    if (!isManual && tokenTracker.shouldThrottle()) {
-        console.log('⚠️ Automated screenshot skipped due to rate limiting');
+    // Prevent race condition: if screenshot is already in progress, skip
+    if (isCapturingScreenshot) {
+        console.log('WARNING: Screenshot already in progress, skipping to prevent race condition');
         return;
     }
+
+    // Check rate limiting for automated screenshots only
+    if (!isManual && tokenTracker.shouldThrottle()) {
+        console.log('WARNING: Automated screenshot skipped due to rate limiting');
+        return;
+    }
+
+    // Set flag to prevent concurrent screenshots
+    isCapturingScreenshot = true;
 
     // Lazy init of video element
     if (!hiddenVideo) {
@@ -483,10 +547,17 @@ async function captureScreenshot(imageQuality = 'medium', isManual = false) {
     // Check if video is ready
     if (hiddenVideo.readyState < 2) {
         console.warn('Video not ready yet, skipping screenshot');
+        isCapturingScreenshot = false; // Reset flag before returning
         return;
     }
 
-    offscreenContext.drawImage(hiddenVideo, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
+    try {
+        offscreenContext.drawImage(hiddenVideo, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
+    } catch (error) {
+        console.error('Error drawing image to canvas:', error);
+        isCapturingScreenshot = false; // Reset flag before returning
+        return;
+    }
 
     // Check if image was drawn properly by sampling a pixel
     const imageData = offscreenContext.getImageData(0, 0, 1, 1);
@@ -518,31 +589,42 @@ async function captureScreenshot(imageQuality = 'medium', isManual = false) {
         async blob => {
             if (!blob) {
                 console.error('Failed to create blob from canvas');
+                isCapturingScreenshot = false; // Reset flag on error
                 return;
             }
 
             const reader = new FileReader();
             reader.onloadend = async () => {
-                const base64data = reader.result.split(',')[1];
+                try {
+                    const base64data = reader.result.split(',')[1];
 
-                // Validate base64 data
-                if (!base64data || base64data.length < 100) {
-                    console.error('Invalid base64 data generated');
-                    return;
+                    // Validate base64 data
+                    if (!base64data || base64data.length < 100) {
+                        console.error('Invalid base64 data generated');
+                        isCapturingScreenshot = false; // Reset flag on error
+                        return;
+                    }
+
+                    const result = await ipcRenderer.invoke('send-image-content', {
+                        data: base64data,
+                    });
+
+                    if (result.success) {
+                        // Track image tokens after successful send
+                        const imageTokens = tokenTracker.calculateImageTokens(offscreenCanvas.width, offscreenCanvas.height);
+                        tokenTracker.addTokens(imageTokens, 'image');
+                        console.log(`Image sent successfully - ${imageTokens} tokens used (${offscreenCanvas.width}x${offscreenCanvas.height})`);
+                    } else {
+                        console.error('Failed to send image:', result.error);
+                    }
+                } finally {
+                    // Always reset the flag when done
+                    isCapturingScreenshot = false;
                 }
-
-                const result = await ipcRenderer.invoke('send-image-content', {
-                    data: base64data,
-                });
-
-                if (result.success) {
-                    // Track image tokens after successful send
-                    const imageTokens = tokenTracker.calculateImageTokens(offscreenCanvas.width, offscreenCanvas.height);
-                    tokenTracker.addTokens(imageTokens, 'image');
-                    console.log(`📊 Image sent successfully - ${imageTokens} tokens used (${offscreenCanvas.width}x${offscreenCanvas.height})`);
-                } else {
-                    console.error('Failed to send image:', result.error);
-                }
+            };
+            reader.onerror = () => {
+                console.error('Failed to read blob as data URL');
+                isCapturingScreenshot = false; // Reset flag on error
             };
             reader.readAsDataURL(blob);
         },
@@ -715,11 +797,55 @@ async function getAllConversationSessions() {
 
 // Listen for conversation data from main process
 ipcRenderer.on('save-conversation-turn', async (data) => {
+    // Check if incognito mode is enabled
+    const incognitoMode = localStorage.getItem('incognitoMode') === 'true';
+    if (incognitoMode) {
+        console.log('Incognito mode enabled - not saving conversation');
+        return;
+    }
+
     try {
         await saveConversationSession(data.sessionId, data.fullHistory);
         console.log('Conversation session saved:', data.sessionId);
     } catch (error) {
         console.error('Error saving conversation session:', error);
+
+        // Handle specific error types
+        if (error.name === 'QuotaExceededError') {
+            console.warn('Storage quota exceeded - attempting to clear old sessions');
+
+            // Try to save to localStorage as backup
+            try {
+                const backupKey = `backup_session_${data.sessionId}`;
+                localStorage.setItem(backupKey, JSON.stringify(data));
+                console.log('Saved conversation to localStorage backup:', backupKey);
+
+                // Show warning to user
+                window.dispatchEvent(new CustomEvent('storage-warning', {
+                    detail: {
+                        type: 'quota_exceeded',
+                        message: 'Storage full! Please clear old conversations in History tab.'
+                    }
+                }));
+            } catch (backupError) {
+                console.error('Failed to save backup to localStorage:', backupError);
+                // Show critical error to user
+                window.dispatchEvent(new CustomEvent('storage-error', {
+                    detail: {
+                        type: 'critical',
+                        message: 'Cannot save conversation - storage full and backup failed!'
+                    }
+                }));
+            }
+        } else {
+            // Other errors
+            window.dispatchEvent(new CustomEvent('storage-error', {
+                detail: {
+                    type: 'unknown',
+                    message: `Failed to save conversation: ${error.message}`
+                }
+            }));
+        }
     }
 });
 
@@ -775,12 +901,28 @@ const cheddar = {
     getAllConversationSessions,
     getConversationSession,
     initConversationStorage,
+    saveConversationSession,
 
     // Content protection function
     getContentProtection: () => {
         const contentProtection = localStorage.getItem('contentProtection');
         return contentProtection !== null ? contentProtection === 'true' : true;
     },
+
+    // Token tracking functions
+    getTokenUsage: () => ({
+        current: tokenTracker.getTokensInLastMinute(),
+        max: parseInt(localStorage.getItem('maxTokensPerMin') || '1000000', 10),
+        percent: Math.round((tokenTracker.getTokensInLastMinute() / parseInt(localStorage.getItem('maxTokensPerMin') || '1000000', 10)) * 100)
+    }),
+    resetTokenTracker: () => tokenTracker.reset(),
+
+    // Connection status
+    getConnectionStatus: () => connectionStatus,
+
+    // Incognito mode
+    getIncognitoMode: () => localStorage.getItem('incognitoMode') === 'true',
+    setIncognitoMode: (enabled) => localStorage.setItem('incognitoMode', enabled.toString()),
 
     // Platform detection
     isLinux: isLinux,

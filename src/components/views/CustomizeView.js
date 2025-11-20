@@ -163,8 +163,9 @@ export class CustomizeView extends LitElement {
         }
 
         .current-selection::before {
-            content: '✓';
+            content: '>';
             font-weight: 600;
+            margin-right: 2px;
         }
 
         .keybind-input {
@@ -1195,13 +1196,13 @@ export class CustomizeView extends LitElement {
                 </div>
 
                 <div class="settings-note">
-                    💡 Settings are automatically saved as you change them. Changes will take effect immediately or on the next session start.
+                    Note: Settings are automatically saved as you change them. Changes will take effect immediately or on the next session start.
                 </div>
 
                 <!-- Advanced Mode Section (Danger Zone) -->
                 <div class="settings-section" style="border-color: var(--danger-border, rgba(239, 68, 68, 0.3)); background: var(--danger-background, rgba(239, 68, 68, 0.05));">
                     <div class="section-title" style="color: var(--danger-color, #ef4444);">
-                        <span>⚠️ Advanced Mode</span>
+                        <span>Advanced Mode</span>
                     </div>
 
                     <div class="form-grid">

@@ -10,11 +10,33 @@ let currentTranscription = '';
 let conversationHistory = [];
 let isInitializingSession = false;
 
-function formatSpeakerResults(results) {
+// Speaker label mappings for different profiles
+const speakerLabelMaps = {
+    interview: ['Interviewer 1', 'You', 'Interviewer 2', 'Interviewer 3', 'Interviewer 4', 'Interviewer 5'],
+    sales: ['Prospect', 'You', 'Decision Maker', 'Stakeholder 3', 'Stakeholder 4', 'Stakeholder 5'],
+    meeting: ['Speaker 1', 'You', 'Speaker 2', 'Speaker 3', 'Speaker 4', 'Speaker 5'],
+    presentation: ['Audience Member', 'You', 'Audience 2', 'Audience 3', 'Audience 4', 'Audience 5'],
+    negotiation: ['Counterparty', 'You', 'Mediator', 'Party 3', 'Party 4', 'Party 5'],
+    exam: ['Proctor', 'You', 'Student 2', 'Student 3', 'Student 4', 'Student 5'],
+};
+
+// Track the current profile for speaker labeling
+let currentProfile = 'interview';
+
+function setCurrentProfile(profile) {
+    currentProfile = profile || 'interview';
+}
+
+function formatSpeakerResults(results, profile = null) {
+    const activeProfile = profile || currentProfile;
+    const labelMap = speakerLabelMaps[activeProfile] || speakerLabelMaps.interview;
+
     let text = '';
     for (const result of results) {
         if (result.transcript && result.speakerId) {
-            const speakerLabel = result.speakerId === 1 ? 'Interviewer' : 'Candidate';
+            // speakerId starts at 1, array indices start at 0
+            const labelIndex = result.speakerId - 1;
+            const speakerLabel = labelMap[labelIndex] || `Speaker ${result.speakerId}`;
             text += `[${speakerLabel}]: ${result.transcript}\n`;
         }
     }
@@ -22,6 +44,7 @@ function formatSpeakerResults(results) {
 }
 
 module.exports.formatSpeakerResults = formatSpeakerResults;
+module.exports.setCurrentProfile = setCurrentProfile;
 
 // Audio capture variables
 let systemAudioProc = null;
@@ -86,26 +109,35 @@ async function sendReconnectionContext() {
     }
 
     try {
-        // Gather all transcriptions from the conversation history
-        const transcriptions = conversationHistory
+        // Gather transcriptions from recent conversation history (last 3 turns to save tokens)
+        const recentTranscriptions = conversationHistory
+            .slice(-3) // Only get last 3 conversations
             .map(turn => turn.transcription)
             .filter(transcription => transcription && transcription.trim().length > 0);
 
-        if (transcriptions.length === 0) {
+        if (recentTranscriptions.length === 0) {
             return;
         }
 
-        // Create the context message
-        const contextMessage = `Till now all these questions were asked in the interview, answer the last one please:\n\n${transcriptions.join(
-            '\n'
-        )}`;
+        // Create a clearer context message with numbered questions
+        const numberedQuestions = recentTranscriptions
+            .map((q, index) => `${index + 1}. ${q}`)
+            .join('\n');
 
-        console.log('Sending reconnection context with', transcriptions.length, 'previous questions');
+        const contextMessage = `[Connection restored - Recent context]\n${numberedQuestions}\n\nPlease continue providing assistance based on the above context.`;
+
+        console.log(`Sending reconnection context with ${recentTranscriptions.length} recent questions (of ${conversationHistory.length} total)`);
 
         // Send the context message to the new session
         await global.geminiSessionRef.current.sendRealtimeInput({
             text: contextMessage,
         });
+
+        // Notify user that reconnection happened with context
+        sendToRenderer('update-status', 'reconnected');
+        setTimeout(() => {
+            sendToRenderer('update-status', 'Live');
+        }, 2000);
     } catch (error) {
         console.error('Error sending reconnection context:', error);
     }
@@ -253,6 +285,10 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                 };
                 reconnectionAttempts = 0; // Reset counter for new session
             }
+
+    // Set current profile for speaker labeling
+    setCurrentProfile(profile);
+    console.log(`Speaker diarization configured for profile: ${profile}`);
 
     const client = new GoogleGenAI({
         vertexai: false,

@@ -86,6 +86,62 @@ export class AppHeader extends LitElement {
             font-size: 12px;
             margin: 0px;
         }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            padding: 4px 8px;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.connected {
+            background: #22c55e;
+        }
+
+        .status-dot.disconnected {
+            background: #ef4444;
+            animation: none;
+        }
+
+        .status-dot.connecting {
+            background: #f59e0b;
+        }
+
+        .status-dot.reconnected {
+            background: #3b82f6;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .panic-button {
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .panic-button:hover {
+            background: rgba(239, 68, 68, 0.2);
+            border-color: rgba(239, 68, 68, 0.5);
+        }
     `;
 
     static properties = {
@@ -101,6 +157,7 @@ export class AppHeader extends LitElement {
         isClickThrough: { type: Boolean, reflect: true },
         advancedMode: { type: Boolean },
         onAdvancedClick: { type: Function },
+        connectionStatus: { type: String }, // 'connected', 'disconnected', 'connecting', 'reconnected'
     };
 
     constructor() {
@@ -118,11 +175,44 @@ export class AppHeader extends LitElement {
         this.advancedMode = false;
         this.onAdvancedClick = () => {};
         this._timerInterval = null;
+        this.connectionStatus = 'disconnected';
     }
 
     connectedCallback() {
         super.connectedCallback();
         this._startTimer();
+        this._setupConnectionStatusListener();
+    }
+
+    _setupConnectionStatusListener() {
+        // Listen for connection status changes
+        window.addEventListener('connection-status-changed', (e) => {
+            this.connectionStatus = e.detail.status;
+        });
+
+        // Initialize from current status if available
+        if (window.cheddar?.getConnectionStatus) {
+            this.connectionStatus = window.cheddar.getConnectionStatus();
+        }
+    }
+
+    handlePanicButton() {
+        // Hide window
+        if (this.onHideToggleClick) {
+            this.onHideToggleClick();
+        }
+
+        // Stop all capture
+        if (window.cheddar?.stopCapture) {
+            window.cheddar.stopCapture();
+        }
+
+        // Clear screenshot interval
+        if (window.screenshotInterval) {
+            clearInterval(window.screenshotInterval);
+        }
+
+        console.log('PANIC button activated - window hidden, capture stopped');
     }
 
     disconnectedCallback() {
@@ -207,6 +297,18 @@ export class AppHeader extends LitElement {
                 <div class="header-actions">
                     ${this.currentView === 'assistant'
                         ? html`
+                              <div class="connection-status">
+                                  <div class="status-dot ${this.connectionStatus}"></div>
+                                  <span>${this.connectionStatus === 'connected' ? 'AI Listening' : this.connectionStatus === 'connecting' ? 'Connecting...' : this.connectionStatus === 'reconnected' ? 'Reconnected' : 'Disconnected'}</span>
+                              </div>
+                              <button class="panic-button" @click=${this.handlePanicButton} title="Emergency hide (Cmd/Ctrl+P)">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-right: 4px;">
+                                      <path d="M12 9V13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                      <path d="M12 17.01L12.01 16.9989" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                      <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="currentColor" stroke-width="2"/>
+                                  </svg>
+                                  PANIC
+                              </button>
                               <span>${elapsedTime}</span>
                               <span>${this.statusText}</span>
                           `

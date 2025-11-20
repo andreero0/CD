@@ -298,13 +298,13 @@ export class HelpView extends LitElement {
                     </div>
                     <div class="community-links">
                         <div class="community-link" @click=${() => this.handleExternalLinkClick('https://cheatingdaddy.com')}>
-                            🌐 Official Website
+                            Official Website
                         </div>
                         <div class="community-link" @click=${() => this.handleExternalLinkClick('https://github.com/sohzm/cheating-daddy')}>
-                            📂 GitHub Repository
+                            GitHub Repository
                         </div>
                         <div class="community-link" @click=${() => this.handleExternalLinkClick('https://discord.gg/GCBdubnXfJ')}>
-                            💬 Discord Community
+                            Discord Community
                         </div>
                     </div>
                 </div>
@@ -387,7 +387,7 @@ export class HelpView extends LitElement {
                         </div>
                     </div>
                     <div class="description" style="margin-top: 12px; font-style: italic; text-align: center;">
-                        💡 You can customize these shortcuts in the Settings page!
+                        Tip: You can customize these shortcuts in the Settings page!
                     </div>
                 </div>
 
