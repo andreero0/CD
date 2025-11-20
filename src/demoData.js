@@ -1,5 +1,5 @@
 /**
- * Demo mode data for Cheating Daddy
+ * Demo mode data for Prism
  * Contains sample Q&A responses to showcase the app's capabilities without requiring an API key
  */
 

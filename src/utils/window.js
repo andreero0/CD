@@ -162,7 +162,7 @@ function createWindow(sendToRenderer, geminiSessionRef, randomNames = null) {
 
                     // Apply content protection setting via IPC handler
                     try {
-                        const contentProtection = await mainWindow.webContents.executeJavaScript('cheddar.getContentProtection()');
+                        const contentProtection = await mainWindow.webContents.executeJavaScript('prism.getContentProtection()');
                         mainWindow.setContentProtection(contentProtection);
                         console.log('Content protection loaded from settings:', contentProtection);
                     } catch (error) {
@@ -299,7 +299,7 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
                     // SECURITY FIX: Use JSON.stringify to safely pass data
                     // This prevents code injection even if shortcutKey is somehow manipulated
                     await mainWindow.webContents.executeJavaScript(
-                        `cheddar.handleShortcut(${JSON.stringify(shortcutKey)})`
+                        `prism.handleShortcut(${JSON.stringify(shortcutKey)})`
                     );
                 } catch (error) {
                     console.error('Error handling next step shortcut:', error);
@@ -520,8 +520,8 @@ function setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef) {
             // Get current view and layout mode from renderer
             let viewName, layoutMode;
             try {
-                viewName = await event.sender.executeJavaScript('cheddar.getCurrentView()');
-                layoutMode = await event.sender.executeJavaScript('cheddar.getLayoutMode()');
+                viewName = await event.sender.executeJavaScript('prism.getCurrentView()');
+                layoutMode = await event.sender.executeJavaScript('prism.getLayoutMode()');
             } catch (error) {
                 console.warn('Failed to get view/layout from renderer, using defaults:', error);
                 viewName = 'main';
