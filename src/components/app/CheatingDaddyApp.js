@@ -298,10 +298,15 @@ export class CheatingDaddyApp extends LitElement {
                         if (result.success) {
                             // Merge the session data
                             const fullSessionData = {
-                                ...result.data,
+                                sessionId: sessionId,
+                                timestamp: parseInt(sessionId),
+                                conversationHistory: result.data?.conversationHistory || [],
                                 ...sessionData,
+                                lastUpdated: Date.now(),
                             };
 
+                            // Actually save to IndexedDB
+                            await window.cheddar.saveConversationSession(sessionId, fullSessionData.conversationHistory);
                             console.log('Saved session to history:', sessionId);
                         }
                     }

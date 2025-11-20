@@ -206,11 +206,12 @@ ipcRenderer.on('update-status', (status) => {
     cheddar.setStatus(status);
 
     // Update connection status for UI
-    if (status === 'Live' || status === 'listening') {
+    const statusLower = status.toLowerCase();
+    if (statusLower.includes('live') || statusLower.includes('listening') || statusLower.includes('connected')) {
         connectionStatus = 'connected';
-    } else if (status === 'error' || status === 'disconnected') {
+    } else if (statusLower.includes('error') || statusLower.includes('disconnected') || statusLower.includes('closed')) {
         connectionStatus = 'disconnected';
-    } else if (status === 'connecting') {
+    } else if (statusLower.includes('connecting') || statusLower.includes('initializing')) {
         connectionStatus = 'connecting';
     }
 
