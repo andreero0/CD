@@ -820,13 +820,16 @@ export class LaunchWizard extends LitElement {
                     This allows the AI to understand the context and provide relevant help.
                     <br><br>
                     <em>Note: For security, browsers require this permission each time you start a new session.</em>
+                    <br><br>
+                    <strong>Multi-Monitor Setup:</strong> If you have multiple monitors, select the screen where your interview/meeting will take place. You can move the Prism app to any monitor, but it will analyze the screen you select here.
                 </div>
                 <div class="permission-example">
                     <div class="permission-example-title">What will be captured:</div>
                     <div class="permission-example-text">
                         • Screenshot of your screen at regular intervals<br>
                         • Visual content to analyze questions and problems<br>
-                        • Your browser or application window content
+                        • Your browser or application window content<br>
+                        • <strong>Tip:</strong> Select "Entire Screen" for the monitor with your interview
                     </div>
                 </div>
             </div>

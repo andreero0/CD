@@ -342,7 +342,7 @@ export class PrismApp extends LitElement {
     }
 
     async handleCloseSession() {
-        cheddar.stopCapture();
+        prism.stopCapture();
 
         // Close the session
         if (window.electron) {
@@ -526,11 +526,11 @@ export class PrismApp extends LitElement {
         const { screenStream, microphoneStream } = event.detail;
 
         // Initialize Gemini with selected profile and language
-        await cheddar.initializeGemini(this.selectedProfile, this.selectedLanguage);
+        await prism.initializeGemini(this.selectedProfile, this.selectedLanguage);
 
         // Start capture with the pre-approved media streams
         // Note: We'll need to update startCapture to optionally accept existing streams
-        cheddar.startCapture(this.selectedScreenshotInterval, this.selectedImageQuality, screenStream, microphoneStream);
+        prism.startCapture(this.selectedScreenshotInterval, this.selectedImageQuality, screenStream, microphoneStream);
 
         this.responses = [];
         this.currentResponseIndex = -1;
@@ -545,7 +545,7 @@ export class PrismApp extends LitElement {
     async handleAPIKeyHelp() {
         if (window.electron) {
             const ipcRenderer = window.electron;
-            await ipcRenderer.invoke('open-external', 'https://cheatingdaddy.com/help/api-key');
+            await ipcRenderer.invoke('open-external', 'https://aistudio.google.com/app/apikey');
         }
     }
 

@@ -221,7 +221,7 @@ ipcRenderer.on('update-status', (status) => {
     }));
 });
 
-// Listen for responses - REMOVED: This is handled in CheatingDaddyApp.js to avoid duplicates
+// Listen for responses - REMOVED: This is handled in PrismApp.js to avoid duplicates
 // ipcRenderer.on('update-response', (event, response) => {
 //     console.log('Gemini response:', response);
 //     prism.e().setResponse(response);

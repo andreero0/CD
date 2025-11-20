@@ -11,12 +11,12 @@ const RESIZE_ANIMATION_DURATION = 500; // milliseconds
 
 function ensureDataDirectories() {
     const homeDir = os.homedir();
-    const cheddarDir = path.join(homeDir, 'cheddar');
-    const dataDir = path.join(cheddarDir, 'data');
+    const prismDir = path.join(homeDir, 'prism');
+    const dataDir = path.join(prismDir, 'data');
     const imageDir = path.join(dataDir, 'image');
     const audioDir = path.join(dataDir, 'audio');
 
-    [cheddarDir, dataDir, imageDir, audioDir].forEach(dir => {
+    [prismDir, dataDir, imageDir, audioDir].forEach(dir => {
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
@@ -66,12 +66,56 @@ function createWindow(sendToRenderer, geminiSessionRef, randomNames = null) {
     mainWindow.setContentProtection(true);
     mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
-    // Center window at the top of the screen
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const { width: screenWidth } = primaryDisplay.workAreaSize;
-    const x = Math.floor((screenWidth - windowWidth) / 2);
-    const y = 0;
-    mainWindow.setPosition(x, y);
+    // Restore saved window position or center at top of screen
+    let savedPosition = null;
+    try {
+        const positionData = fs.readFileSync(path.join(os.homedir(), '.prism-window-position.json'), 'utf8');
+        savedPosition = JSON.parse(positionData);
+        console.log('Restored window position:', savedPosition);
+    } catch (e) {
+        // No saved position, use default
+    }
+
+    if (savedPosition && typeof savedPosition.x === 'number' && typeof savedPosition.y === 'number') {
+        // Verify the position is still valid (display still exists)
+        const allDisplays = screen.getAllDisplays();
+        const isValidPosition = allDisplays.some(display => {
+            const { x, y, width, height } = display.bounds;
+            return savedPosition.x >= x && savedPosition.x < x + width &&
+                   savedPosition.y >= y && savedPosition.y < y + height;
+        });
+
+        if (isValidPosition) {
+            mainWindow.setPosition(savedPosition.x, savedPosition.y);
+        } else {
+            // Saved position is invalid (monitor disconnected), use default
+            const primaryDisplay = screen.getPrimaryDisplay();
+            const { width: screenWidth } = primaryDisplay.workAreaSize;
+            const x = Math.floor((screenWidth - windowWidth) / 2);
+            mainWindow.setPosition(x, 0);
+        }
+    } else {
+        // No saved position, center at top of primary screen
+        const primaryDisplay = screen.getPrimaryDisplay();
+        const { width: screenWidth } = primaryDisplay.workAreaSize;
+        const x = Math.floor((screenWidth - windowWidth) / 2);
+        mainWindow.setPosition(x, 0);
+    }
+
+    // Save window position when moved
+    mainWindow.on('moved', () => {
+        const [x, y] = mainWindow.getPosition();
+        const positionData = { x, y };
+        try {
+            fs.writeFileSync(
+                path.join(os.homedir(), '.prism-window-position.json'),
+                JSON.stringify(positionData),
+                'utf8'
+            );
+        } catch (e) {
+            console.error('Failed to save window position:', e);
+        }
+    });
 
     if (process.platform === 'win32') {
         mainWindow.setAlwaysOnTop(true, 'screen-saver', 1);
@@ -118,7 +162,7 @@ function createWindow(sendToRenderer, geminiSessionRef, randomNames = null) {
 
                     // Apply content protection setting via IPC handler
                     try {
-                        const contentProtection = await mainWindow.webContents.executeJavaScript('cheddar.getContentProtection()');
+                        const contentProtection = await mainWindow.webContents.executeJavaScript('prism.getContentProtection()');
                         mainWindow.setContentProtection(contentProtection);
                         console.log('Content protection loaded from settings:', contentProtection);
                     } catch (error) {
@@ -255,7 +299,7 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
                     // SECURITY FIX: Use JSON.stringify to safely pass data
                     // This prevents code injection even if shortcutKey is somehow manipulated
                     await mainWindow.webContents.executeJavaScript(
-                        `cheddar.handleShortcut(${JSON.stringify(shortcutKey)})`
+                        `prism.handleShortcut(${JSON.stringify(shortcutKey)})`
                     );
                 } catch (error) {
                     console.error('Error handling next step shortcut:', error);
@@ -476,8 +520,8 @@ function setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef) {
             // Get current view and layout mode from renderer
             let viewName, layoutMode;
             try {
-                viewName = await event.sender.executeJavaScript('cheddar.getCurrentView()');
-                layoutMode = await event.sender.executeJavaScript('cheddar.getLayoutMode()');
+                viewName = await event.sender.executeJavaScript('prism.getCurrentView()');
+                layoutMode = await event.sender.executeJavaScript('prism.getLayoutMode()');
             } catch (error) {
                 console.warn('Failed to get view/layout from renderer, using defaults:', error);
                 viewName = 'main';

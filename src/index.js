@@ -153,8 +153,8 @@ function setupGeneralIpcHandlers() {
                 let contentProtection = contentProtectionValue;
 
                 if (contentProtection === undefined || contentProtection === null) {
-                    // Fallback: Get content protection setting from localStorage via cheddar
-                    contentProtection = await mainWindow.webContents.executeJavaScript('cheddar.getContentProtection()');
+                    // Fallback: Get content protection setting from localStorage via prism
+                    contentProtection = await mainWindow.webContents.executeJavaScript('prism.getContentProtection()');
                 }
 
                 // SECURITY: Validate boolean value
