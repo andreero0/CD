@@ -348,7 +348,6 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
         initializeNewSession();
     }
 
-    try {
         const session = await client.live.connect({
             model: 'gemini-live-2.5-flash-preview',
             callbacks: {
@@ -461,18 +460,18 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
             },
         });
 
-            isInitializingSession = false;
-            sendToRenderer('session-initializing', false);
-            return session;
-        } catch (error) {
-            console.error('Failed to initialize Gemini session:', error);
-            isInitializingSession = false;
-            sendToRenderer('session-initializing', false);
-            return null;
-        } finally {
-            // SECURITY FIX: Clean up the initialization promise
-            initializationPromise = null;
-        }
+        isInitializingSession = false;
+        sendToRenderer('session-initializing', false);
+        return session;
+    } catch (error) {
+        console.error('Failed to initialize Gemini session:', error);
+        isInitializingSession = false;
+        sendToRenderer('session-initializing', false);
+        return null;
+    } finally {
+        // SECURITY FIX: Clean up the initialization promise
+        initializationPromise = null;
+    }
     })();
 
     return await initializationPromise;

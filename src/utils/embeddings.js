@@ -1,20 +1,38 @@
 // embeddings.js - Local embeddings generation using @xenova/transformers
-const { pipeline, env } = require('@xenova/transformers');
-
-// Configure for Node.js/Electron environment
-env.allowRemoteModels = true;
-env.allowLocalModels = true;
-env.backends.onnx.wasm.numThreads = 1; // Single thread for Electron compatibility
-
-// Use ONNX runtime for Node.js
-if (typeof process !== 'undefined' && process.versions && process.versions.electron) {
-    console.log('Running in Electron environment');
-}
 
 // Singleton pipeline instance for efficiency
 let embeddingPipeline = null;
 let isInitializing = false;
 let initPromise = null;
+let transformersModule = null;
+
+/**
+ * Lazy load the transformers module (ES Module)
+ */
+async function loadTransformers() {
+    if (transformersModule) {
+        return transformersModule;
+    }
+
+    try {
+        transformersModule = await import('@xenova/transformers');
+        
+        // Configure for Node.js/Electron environment
+        transformersModule.env.allowRemoteModels = true;
+        transformersModule.env.allowLocalModels = true;
+        transformersModule.env.backends.onnx.wasm.numThreads = 1; // Single thread for Electron compatibility
+
+        // Use ONNX runtime for Node.js
+        if (typeof process !== 'undefined' && process.versions && process.versions.electron) {
+            console.log('Running in Electron environment');
+        }
+
+        return transformersModule;
+    } catch (error) {
+        console.error('Failed to load @xenova/transformers:', error);
+        throw error;
+    }
+}
 
 /**
  * Initialize the embedding pipeline with all-MiniLM-L6-v2 model
@@ -33,7 +51,10 @@ async function initializeEmbeddings() {
     console.log('Initializing embeddings model: Xenova/all-MiniLM-L6-v2...');
 
     try {
-        initPromise = pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+        // Load transformers module dynamically
+        const transformers = await loadTransformers();
+        
+        initPromise = transformers.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
             quantized: true, // Use quantized model for better performance
         });
 
@@ -192,6 +213,7 @@ async function cleanup() {
         embeddingPipeline = null;
         isInitializing = false;
         initPromise = null;
+        transformersModule = null;
     }
 }
 
