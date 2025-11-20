@@ -250,7 +250,7 @@ export class HelpView extends LitElement {
     }
 
     getDefaultKeybinds() {
-        const isMac = cheddar.isMacOS || navigator.platform.includes('Mac');
+        const isMac = prism.isMacOS || navigator.platform.includes('Mac');
         return {
             moveUp: isMac ? 'Alt+Up' : 'Ctrl+Up',
             moveDown: isMac ? 'Alt+Down' : 'Ctrl+Down',
@@ -287,8 +287,8 @@ export class HelpView extends LitElement {
     }
 
     render() {
-        const isMacOS = cheddar.isMacOS || false;
-        const isLinux = cheddar.isLinux || false;
+        const isMacOS = prism.isMacOS || false;
+        const isLinux = prism.isLinux || false;
 
         return html`
             <div class="help-container">
