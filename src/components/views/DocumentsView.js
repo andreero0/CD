@@ -463,7 +463,7 @@ export class DocumentsView extends LitElement {
         this.uploadProgress = 0;
 
         // Show notification based on results
-        const app = document.querySelector('cheating-daddy-app');
+        const app = document.querySelector('prism-app');
         if (app && app.addErrorNotification) {
             if (successCount > 0 && failedFiles.length === 0) {
                 // All files succeeded

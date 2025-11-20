@@ -193,8 +193,8 @@ export class AppHeader extends LitElement {
         });
 
         // Initialize from current status if available
-        if (window.cheddar?.getConnectionStatus) {
-            this.connectionStatus = window.cheddar.getConnectionStatus();
+        if (window.prism?.getConnectionStatus) {
+            this.connectionStatus = window.prism.getConnectionStatus();
         }
     }
 
@@ -205,8 +205,8 @@ export class AppHeader extends LitElement {
         }
 
         // Stop all capture
-        if (window.cheddar?.stopCapture) {
-            window.cheddar.stopCapture();
+        if (window.prism?.stopCapture) {
+            window.prism.stopCapture();
         }
 
         // Clear screenshot interval

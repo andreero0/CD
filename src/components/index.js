@@ -1,5 +1,5 @@
 // Main app components
-export { CheatingDaddyApp } from './app/CheatingDaddyApp.js';
+export { PrismApp } from './app/PrismApp.js';
 export { AppHeader } from './app/AppHeader.js';
 export { StatusBar } from './app/StatusBar.js';
 

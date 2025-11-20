@@ -363,5 +363,5 @@ export function generateFilename(format, profile = 'session') {
     const date = new Date();
     const dateStr = date.toISOString().split('T')[0];
     const timeStr = date.toTimeString().split(' ')[0].replace(/:/g, '-');
-    return `cheating-daddy-${profile}-${dateStr}-${timeStr}.${format}`;
+    return `prism-${profile}-${dateStr}-${timeStr}.${format}`;
 }

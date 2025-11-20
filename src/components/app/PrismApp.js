@@ -13,7 +13,7 @@ import { SessionEndDialog } from '../views/SessionEndDialog.js';
 import { ErrorNotification } from '../views/ErrorNotification.js';
 import { DocumentsView } from '../views/DocumentsView.js';
 
-export class CheatingDaddyApp extends LitElement {
+export class PrismApp extends LitElement {
     static styles = css`
         * {
             box-sizing: border-box;
@@ -286,9 +286,9 @@ export class CheatingDaddyApp extends LitElement {
             const sessionData = window.sessionStats.exportSession();
 
             // Save to IndexedDB via the existing conversation storage
-            if (window.cheddar) {
+            if (window.prism) {
                 try {
-                    await window.cheddar.initConversationStorage();
+                    await window.prism.initConversationStorage();
                     const sessionId = Date.now().toString();
 
                     // Get the conversation session and add our stats
@@ -306,7 +306,7 @@ export class CheatingDaddyApp extends LitElement {
                             };
 
                             // Actually save to IndexedDB
-                            await window.cheddar.saveConversationSession(sessionId, fullSessionData.conversationHistory);
+                            await window.prism.saveConversationSession(sessionId, fullSessionData.conversationHistory);
                             console.log('Saved session to history:', sessionId);
                         }
                     }
@@ -592,7 +592,7 @@ export class CheatingDaddyApp extends LitElement {
             window.responseContext.captureQuestion(message);
         }
 
-        const result = await window.cheddar.sendTextMessage(message);
+        const result = await window.prism.sendTextMessage(message);
 
         if (!result.success) {
             console.error('Failed to send message:', result.error);
@@ -840,4 +840,4 @@ export class CheatingDaddyApp extends LitElement {
     }
 }
 
-customElements.define('cheating-daddy-app', CheatingDaddyApp);
+customElements.define('prism-app', PrismApp);

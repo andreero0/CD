@@ -193,9 +193,9 @@ async function initializeGemini(profile = 'interview', language = 'en-US') {
     if (apiKey) {
         const success = await ipcRenderer.invoke('initialize-gemini', apiKey, localStorage.getItem('customPrompt') || '', profile, language);
         if (success) {
-            cheddar.setStatus('Live');
+            prism.setStatus('Live');
         } else {
-            cheddar.setStatus('error');
+            prism.setStatus('error');
         }
     }
 }
@@ -203,7 +203,7 @@ async function initializeGemini(profile = 'interview', language = 'en-US') {
 // Listen for status updates
 ipcRenderer.on('update-status', (status) => {
     console.log('Status update:', status);
-    cheddar.setStatus(status);
+    prism.setStatus(status);
 
     // Update connection status for UI
     const statusLower = status.toLowerCase();
@@ -224,7 +224,7 @@ ipcRenderer.on('update-status', (status) => {
 // Listen for responses - REMOVED: This is handled in CheatingDaddyApp.js to avoid duplicates
 // ipcRenderer.on('update-response', (event, response) => {
 //     console.log('Gemini response:', response);
-//     cheddar.e().setResponse(response);
+//     prism.e().setResponse(response);
 //     // You can add UI elements to display the response if needed
 // });
 
@@ -424,10 +424,10 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
         }
     } catch (err) {
         console.error('Error starting capture:', err);
-        cheddar.setStatus('error');
+        prism.setStatus('error');
 
         // Send error notification with recovery steps
-        const app = document.querySelector('cheating-daddy-app');
+        const app = document.querySelector('prism-app');
         if (app && app.addErrorNotification) {
             let errorMessage = 'Failed to start capture';
             let recoverySteps = [];
@@ -632,7 +632,7 @@ async function captureScreenshot(imageQuality = 'medium', isManual = false) {
         // Show rate limiting warning to user (only once per throttle period)
         if (!window._rateLimitWarningShown) {
             window._rateLimitWarningShown = true;
-            const app = document.querySelector('cheating-daddy-app');
+            const app = document.querySelector('prism-app');
             if (app && app.addErrorNotification) {
                 app.addErrorNotification({
                     type: 'warning',
@@ -1002,11 +1002,11 @@ ipcRenderer.on('clear-sensitive-data', () => {
 
 // Handle shortcuts based on current view
 function handleShortcut(shortcutKey) {
-    const currentView = cheddar.getCurrentView();
+    const currentView = prism.getCurrentView();
 
     if (shortcutKey === 'ctrl+enter' || shortcutKey === 'cmd+enter') {
         if (currentView === 'main') {
-            cheddar.element().handleStart();
+            prism.element().handleStart();
         } else {
             captureManualScreenshot();
         }
@@ -1014,21 +1014,21 @@ function handleShortcut(shortcutKey) {
 }
 
 // Create reference to the main app element
-const cheatingDaddyApp = document.querySelector('cheating-daddy-app');
+const prismApp = document.querySelector('prism-app');
 
-// Consolidated cheddar object - all functions in one place
-const cheddar = {
+// Consolidated prism object - all functions in one place
+const prism = {
     // Element access
-    element: () => cheatingDaddyApp,
-    e: () => cheatingDaddyApp,
+    element: () => prismApp,
+    e: () => prismApp,
 
     // App state functions - access properties directly from the app element
-    getCurrentView: () => cheatingDaddyApp.currentView,
-    getLayoutMode: () => cheatingDaddyApp.layoutMode,
+    getCurrentView: () => prismApp.currentView,
+    getLayoutMode: () => prismApp.layoutMode,
 
     // Status and response functions
-    setStatus: text => cheatingDaddyApp.setStatus(text),
-    setResponse: response => cheatingDaddyApp.setResponse(response),
+    setStatus: text => prismApp.setStatus(text),
+    setResponse: response => prismApp.setResponse(response),
 
     // Core functionality
     initializeGemini,
@@ -1070,4 +1070,4 @@ const cheddar = {
 };
 
 // Make it globally available
-window.cheddar = cheddar;
+window.prism = prism;

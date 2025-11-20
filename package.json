@@ -1,8 +1,8 @@
 {
-    "name": "cheating-daddy",
-    "productName": "cheating-daddy",
+    "name": "prism",
+    "productName": "Prism",
     "version": "0.4.0",
-    "description": "cheating daddy",
+    "description": "Prism - AI-powered conversation assistant",
     "main": "src/index.js",
     "scripts": {
         "start": "electron-forge start",
@@ -13,11 +13,11 @@
         "test": "vitest run"
     },
     "keywords": [
-        "cheating daddy",
-        "cheating daddy ai",
-        "cheating daddy ai assistant",
-        "cheating daddy ai assistant for interviews",
-        "cheating daddy ai assistant for interviews"
+        "prism",
+        "ai assistant",
+        "conversation assistant",
+        "interview assistant",
+        "presentation assistant"
     ],
     "author": {
         "name": "sohzm",

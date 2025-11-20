@@ -582,7 +582,12 @@ export class LaunchWizard extends LitElement {
         };
 
         try {
-            const stream = await navigator.mediaDevices.getDisplayMedia({
+            // Add a timeout to handle cases where user closes dialog without action
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Permission request timed out')), 60000) // 60 second timeout
+            );
+
+            const displayPromise = navigator.mediaDevices.getDisplayMedia({
                 video: {
                     frameRate: 1,
                     width: { ideal: 1920 },
@@ -590,6 +595,8 @@ export class LaunchWizard extends LitElement {
                 },
                 audio: false,
             });
+
+            const stream = await Promise.race([displayPromise, timeoutPromise]);
 
             this.permissionStates = {
                 ...this.permissionStates,
@@ -600,7 +607,12 @@ export class LaunchWizard extends LitElement {
                 ...this.permissionStates,
                 screen: { status: 'denied', stream: null },
             };
-            this.errorMessage = 'Screen sharing permission was denied. Please allow screen sharing to continue.';
+
+            if (error.message === 'Permission request timed out') {
+                this.errorMessage = 'Permission request timed out. If you granted permission in System Settings, click "Retry Permissions" to try again.';
+            } else {
+                this.errorMessage = 'Screen sharing permission was denied. If you need to grant permission in System Settings (Privacy & Security → Screen Recording), please do so and then click "Retry Permissions".';
+            }
         }
     }
 
