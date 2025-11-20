@@ -41,7 +41,9 @@ const validChannels = {
         'scroll-response-up',
         'scroll-response-down',
         'clear-sensitive-data',
-        'save-conversation-turn'
+        'save-conversation-turn',
+        'transcript-update',
+        'screenshot-captured'
     ]
 };
 
