@@ -38,6 +38,13 @@ window.screenshotTracker = {
     isManualMode: false,
 };
 
+// Audio level tracker for real-time UI feedback
+window.audioTracker = {
+    micLevel: 0,      // 0.0 to 1.0
+    systemLevel: 0,   // 0.0 to 1.0
+    lastUpdate: 0,
+};
+
 const isLinux = process.platform === 'linux';
 const isMacOS = process.platform === 'darwin';
 
@@ -438,6 +445,16 @@ function setupLinuxMicProcessing(micStream) {
 
     micProcessor.onaudioprocess = async e => {
         const inputData = e.inputBuffer.getChannelData(0);
+
+        // Calculate RMS audio level for UI display
+        let sum = 0;
+        for (let i = 0; i < inputData.length; i++) {
+            sum += inputData[i] * inputData[i];
+        }
+        const rms = Math.sqrt(sum / inputData.length);
+        window.audioTracker.micLevel = Math.min(1.0, rms * 10); // Scale for visibility
+        window.audioTracker.lastUpdate = Date.now();
+
         audioBuffer.push(...inputData);
 
         // Process audio in chunks
@@ -471,6 +488,16 @@ function setupLinuxSystemAudioProcessing() {
 
     audioProcessor.onaudioprocess = async e => {
         const inputData = e.inputBuffer.getChannelData(0);
+
+        // Calculate RMS audio level for UI display
+        let sum = 0;
+        for (let i = 0; i < inputData.length; i++) {
+            sum += inputData[i] * inputData[i];
+        }
+        const rms = Math.sqrt(sum / inputData.length);
+        window.audioTracker.systemLevel = Math.min(1.0, rms * 10);
+        window.audioTracker.lastUpdate = Date.now();
+
         audioBuffer.push(...inputData);
 
         // Process audio in chunks
@@ -501,6 +528,16 @@ function setupWindowsLoopbackProcessing() {
 
     audioProcessor.onaudioprocess = async e => {
         const inputData = e.inputBuffer.getChannelData(0);
+
+        // Calculate RMS audio level for UI display (Windows loopback)
+        let sum = 0;
+        for (let i = 0; i < inputData.length; i++) {
+            sum += inputData[i] * inputData[i];
+        }
+        const rms = Math.sqrt(sum / inputData.length);
+        window.audioTracker.systemLevel = Math.min(1.0, rms * 10);
+        window.audioTracker.lastUpdate = Date.now();
+
         audioBuffer.push(...inputData);
 
         // Process audio in chunks

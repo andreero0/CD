@@ -374,20 +374,20 @@ export class StatusBar extends LitElement {
     }
 
     _updateAudioLevels() {
-        // In production, this would connect to actual audio processing
-        // For now, simulate audio levels based on AI state
-        if (this.aiState === 'listening' || this.aiState === 'thinking') {
-            // Simulate varying audio levels
+        // Read real audio levels from window.audioTracker
+        if (window.audioTracker) {
+            const timeSinceUpdate = Date.now() - window.audioTracker.lastUpdate;
+
+            // Decay levels if no recent update (>200ms means audio stopped)
+            const decay = timeSinceUpdate > 200 ? Math.max(0, 1 - (timeSinceUpdate - 200) / 500) : 1.0;
+
             this.audioLevels = {
-                mic: Math.random() * 0.3 + 0.1,
-                system: Math.random() * 0.4 + 0.2,
+                mic: window.audioTracker.micLevel * decay,
+                system: window.audioTracker.systemLevel * decay,
             };
         } else {
-            // Reduce to near zero when not active
-            this.audioLevels = {
-                mic: Math.random() * 0.05,
-                system: Math.random() * 0.05,
-            };
+            // Fallback if tracker not initialized yet
+            this.audioLevels = { mic: 0, system: 0 };
         }
         this.requestUpdate();
     }
@@ -449,7 +449,7 @@ export class StatusBar extends LitElement {
         if (this.screenshotInterval === 'manual' || this.screenshotInterval === 'Manual') {
             return html`
                 <div class="status-item">
-                    <div class="status-label">📸 Screenshot</div>
+                    <div class="status-label">Screenshot</div>
                     <div class="status-value neutral">Manual</div>
                 </div>
             `;
@@ -478,11 +478,11 @@ export class StatusBar extends LitElement {
 
     renderAiState() {
         const stateConfig = {
-            idle: { icon: '⏸️', label: 'Idle' },
-            listening: { icon: '🎤', label: 'Listening' },
-            thinking: { icon: '💭', label: 'Thinking' },
-            complete: { icon: '✅', label: 'Complete' },
-            error: { icon: '❌', label: 'Error' },
+            idle: { icon: '■', label: 'Idle' },
+            listening: { icon: '●', label: 'Listening' },
+            thinking: { icon: '◐', label: 'Thinking' },
+            complete: { icon: '✓', label: 'Complete' },
+            error: { icon: '✗', label: 'Error' },
         };
 
         const config = stateConfig[this.aiState] || stateConfig.idle;
@@ -513,7 +513,7 @@ export class StatusBar extends LitElement {
 
         return html`
             <div class="status-item">
-                <div class="status-label">📊 Tokens (1min)</div>
+                <div class="status-label">Tokens (1min)</div>
                 <div class="status-value ${colorClass}">
                     ${formattedUsed} / ${formattedLimit}
                 </div>
@@ -532,17 +532,17 @@ export class StatusBar extends LitElement {
                     <div class="toggle-icon ${this.collapsed ? 'collapsed' : ''}">▼</div>
                 </div>
                 <div class="status-bar-content ${this.collapsed ? 'collapsed' : ''}">
-                    ${this.renderAudioMeter(this.audioLevels.mic, '🎤 Mic')}
-                    ${this.renderAudioMeter(this.audioLevels.system, '🔊 System')}
+                    ${this.renderAudioMeter(this.audioLevels.mic, 'Mic')}
+                    ${this.renderAudioMeter(this.audioLevels.system, 'System')}
                     ${this.renderScreenshotTimer()}
                     ${this.renderAiState()}
                     ${this.renderTokenUsage()}
                     <div class="status-item">
-                        <div class="status-label">⏱️ Duration</div>
+                        <div class="status-label">Duration</div>
                         <div class="status-value neutral">${this.sessionDuration}</div>
                     </div>
                     <div class="status-item">
-                        <div class="status-label">⚡ Responses</div>
+                        <div class="status-label">Responses</div>
                         <div class="status-value good">${this.responseCount}</div>
                     </div>
                 </div>

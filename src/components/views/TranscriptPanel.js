@@ -230,7 +230,7 @@ export class TranscriptPanel extends LitElement {
     }
 
     getSpeakerIcon(speaker) {
-        return speaker === 'Interviewer' ? '👤' : '🙋';
+        return speaker === 'Interviewer' ? '▶' : '◀';
     }
 
     getSpeakerClass(speaker) {
@@ -275,7 +275,7 @@ export class TranscriptPanel extends LitElement {
                       )
                     : html`
                           <div class="empty-state">
-                              <div class="empty-icon">🎤</div>
+                              <div class="empty-icon">●</div>
                               <div>Waiting for conversation...</div>
                               <div style="font-size: 11px; margin-top: 4px; opacity: 0.7;">Transcript will appear here as you speak</div>
                           </div>

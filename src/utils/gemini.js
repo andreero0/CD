@@ -14,8 +14,12 @@ let isInitializingSession = false;
 function formatSpeakerResults(results) {
     let text = '';
     for (const result of results) {
-        if (result.transcript && result.speakerId) {
-            const speakerLabel = result.speakerId === 1 ? 'Interviewer' : 'Candidate';
+        if (result.transcript) {
+            // Use speakerId if available, otherwise default to generic label
+            const speakerId = result.speakerId !== undefined ? result.speakerId : 0;
+            const speakerLabel = speakerId === 1 ? 'Interviewer' :
+                                 speakerId === 2 ? 'Candidate' :
+                                 'Speaker';
             text += `[${speakerLabel}]: ${result.transcript}\n`;
         }
     }
