@@ -46,6 +46,13 @@ window.screenshotTracker = {
     isManualMode: false,
 };
 
+// Audio level tracker for real-time UI feedback
+window.audioTracker = {
+    micLevel: 0,      // 0.0 to 1.0
+    systemLevel: 0,   // 0.0 to 1.0
+    lastUpdate: 0,
+};
+
 // Token tracking system for rate limiting
 window.tokenTracker = {
     tokens: [], // Array of {timestamp, count, type} objects
@@ -477,6 +484,16 @@ function setupLinuxMicProcessing(micStream) {
 
     micProcessor.onaudioprocess = async e => {
         const inputData = e.inputBuffer.getChannelData(0);
+
+        // Calculate RMS audio level for UI display
+        let sum = 0;
+        for (let i = 0; i < inputData.length; i++) {
+            sum += inputData[i] * inputData[i];
+        }
+        const rms = Math.sqrt(sum / inputData.length);
+        window.audioTracker.micLevel = Math.min(1.0, rms * 10); // Scale for visibility
+        window.audioTracker.lastUpdate = Date.now();
+
         audioBuffer.push(...inputData);
 
         // Prevent memory leak: if buffer grows too large, remove oldest data
@@ -516,6 +533,16 @@ function setupLinuxSystemAudioProcessing() {
 
     audioProcessor.onaudioprocess = async e => {
         const inputData = e.inputBuffer.getChannelData(0);
+
+        // Calculate RMS audio level for UI display
+        let sum = 0;
+        for (let i = 0; i < inputData.length; i++) {
+            sum += inputData[i] * inputData[i];
+        }
+        const rms = Math.sqrt(sum / inputData.length);
+        window.audioTracker.systemLevel = Math.min(1.0, rms * 10);
+        window.audioTracker.lastUpdate = Date.now();
+
         audioBuffer.push(...inputData);
 
         // Prevent memory leak: if buffer grows too large, remove oldest data
@@ -552,6 +579,16 @@ function setupWindowsLoopbackProcessing() {
 
     audioProcessor.onaudioprocess = async e => {
         const inputData = e.inputBuffer.getChannelData(0);
+
+        // Calculate RMS audio level for UI display (Windows loopback)
+        let sum = 0;
+        for (let i = 0; i < inputData.length; i++) {
+            sum += inputData[i] * inputData[i];
+        }
+        const rms = Math.sqrt(sum / inputData.length);
+        window.audioTracker.systemLevel = Math.min(1.0, rms * 10);
+        window.audioTracker.lastUpdate = Date.now();
+
         audioBuffer.push(...inputData);
 
         // Prevent memory leak: if buffer grows too large, remove oldest data

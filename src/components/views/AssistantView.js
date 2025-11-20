@@ -1163,7 +1163,7 @@ export class AssistantView extends LitElement {
                     title="${this.showTranscript ? 'Hide transcript' : 'Show transcript'}"
                     aria-label="${this.showTranscript ? 'Hide transcript' : 'Show transcript'}"
                 >
-                    <span style="font-size: 18px;">${this.showTranscript ? '📝' : '📄'}</span>
+                    <span style="font-size: 16px;">${this.showTranscript ? 'Hide' : 'Show'}</span>
                 </button>
 
                 <input

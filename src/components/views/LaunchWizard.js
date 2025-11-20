@@ -50,8 +50,8 @@ export class LaunchWizard extends LitElement {
         .wizard-content {
             max-width: 600px;
             width: 100%;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
             border-radius: 16px;
             padding: 48px;
             backdrop-filter: blur(10px);
@@ -171,8 +171,8 @@ export class LaunchWizard extends LitElement {
         }
 
         .permission-card {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.25);
             border-radius: 12px;
             padding: 24px;
             margin-bottom: 20px;
