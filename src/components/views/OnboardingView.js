@@ -568,12 +568,12 @@ export class OnboardingView extends LitElement {
         if (this.currentSlide < 4) {
             this.startColorTransition(this.currentSlide + 1);
         } else {
-            // On the last slide (API key), require validation before completing
-            if (this.apiKeySuccess) {
-                this.completeOnboarding();
-            } else {
-                this.apiKeyError = 'Please test your API key or skip to continue';
+            // On the last slide (API key), save key if entered and complete
+            if (this.apiKey && this.apiKey.trim()) {
+                // Save the API key if user entered one (even if not tested)
+                localStorage.setItem('apiKey', this.apiKey.trim());
             }
+            this.completeOnboarding();
         }
     }
 
@@ -666,8 +666,8 @@ export class OnboardingView extends LitElement {
 
         try {
             // Test the API key by attempting to initialize a session
-            if (window.electron && window.electron.ipcRenderer) {
-                const result = await window.electron.ipcRenderer.invoke(
+            if (window.electron) {
+                const result = await window.electron.invoke(
                     'initialize-gemini',
                     this.apiKey.trim(),
                     '', // no custom prompt
@@ -681,7 +681,7 @@ export class OnboardingView extends LitElement {
                     localStorage.setItem('apiKey', this.apiKey.trim());
 
                     // Close the test session immediately
-                    await window.electron.ipcRenderer.invoke('close-session');
+                    await window.electron.invoke('close-session');
                 } else {
                     this.apiKeyError = 'Failed to connect with this API key. Please check if it\'s valid.';
                     this.apiKeySuccess = false;

@@ -167,8 +167,8 @@ export class CheatingDaddyApp extends LitElement {
         super.connectedCallback();
 
         // Set up IPC listeners if needed
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
+        if (window.electron) {
+            const ipcRenderer = window.electron;
             ipcRenderer.on('update-response', (_, response) => {
                 this.setResponse(response);
             });
@@ -224,8 +224,8 @@ export class CheatingDaddyApp extends LitElement {
 
     disconnectedCallback() {
         super.disconnectedCallback();
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
+        if (window.electron) {
+            const ipcRenderer = window.electron;
             ipcRenderer.removeAllListeners('update-response');
             ipcRenderer.removeAllListeners('update-status');
             ipcRenderer.removeAllListeners('click-through-toggled');
@@ -247,8 +247,8 @@ export class CheatingDaddyApp extends LitElement {
     // Reconnection overlay handlers
     handleReconnectionRetry() {
         // Trigger manual retry
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
+        if (window.electron) {
+            const ipcRenderer = window.electron;
             ipcRenderer.invoke('retry-connection');
         }
     }
@@ -292,8 +292,8 @@ export class CheatingDaddyApp extends LitElement {
                     const sessionId = Date.now().toString();
 
                     // Get the conversation session and add our stats
-                    if (window.require) {
-                        const { ipcRenderer } = window.require('electron');
+                    if (window.electron) {
+                        const ipcRenderer = window.electron;
                         const result = await ipcRenderer.invoke('get-current-session');
                         if (result.success) {
                             // Merge the session data
@@ -340,8 +340,8 @@ export class CheatingDaddyApp extends LitElement {
         cheddar.stopCapture();
 
         // Close the session
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
+        if (window.electron) {
+            const ipcRenderer = window.electron;
             await ipcRenderer.invoke('close-session');
         }
 
@@ -462,16 +462,16 @@ export class CheatingDaddyApp extends LitElement {
             this.handleSessionEndRequest();
         } else {
             // Quit the entire application
-            if (window.require) {
-                const { ipcRenderer } = window.require('electron');
+            if (window.electron) {
+                const ipcRenderer = window.electron;
                 await ipcRenderer.invoke('quit-application');
             }
         }
     }
 
     async handleHideToggle() {
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
+        if (window.electron) {
+            const ipcRenderer = window.electron;
             await ipcRenderer.invoke('toggle-window-visibility');
         }
     }
@@ -491,6 +491,29 @@ export class CheatingDaddyApp extends LitElement {
 
         // Show launch wizard instead of going directly to assistant view
         this.currentView = 'wizard';
+    }
+
+    async handleStartDemo() {
+        // Set demo mode flag
+        localStorage.setItem('demoMode', 'true');
+
+        // Import demo data and set some sample responses
+        try {
+            const { demoResponses } = await import('../../demoData.js');
+
+            // Set demo responses to show users what the app can do
+            this.responses = demoResponses.slice(0, 3).map(demo =>
+                `**Question:** ${demo.question}\n\n**With Context:**\n${demo.withContext}\n\n**Context Used:** ${demo.contextUsed}`
+            );
+            this.currentResponseIndex = 0;
+
+            // Go directly to assistant view
+            this.currentView = 'assistant';
+            this.setStatus('Demo Mode - Showing sample responses');
+        } catch (error) {
+            console.error('Error loading demo data:', error);
+            this.setStatus('Failed to start demo mode');
+        }
     }
 
     // Launch wizard event handlers
@@ -515,8 +538,8 @@ export class CheatingDaddyApp extends LitElement {
     }
 
     async handleAPIKeyHelp() {
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
+        if (window.electron) {
+            const ipcRenderer = window.electron;
             await ipcRenderer.invoke('open-external', 'https://cheatingdaddy.com/help/api-key');
         }
     }
@@ -551,8 +574,8 @@ export class CheatingDaddyApp extends LitElement {
 
     // Help view event handlers
     async handleExternalLinkClick(url) {
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
+        if (window.electron) {
+            const ipcRenderer = window.electron;
             await ipcRenderer.invoke('open-external', url);
         }
     }
@@ -590,8 +613,8 @@ export class CheatingDaddyApp extends LitElement {
         super.updated(changedProperties);
 
         // Only notify main process of view change if the view actually changed
-        if (changedProperties.has('currentView') && window.require) {
-            const { ipcRenderer } = window.require('electron');
+        if (changedProperties.has('currentView') && window.electron) {
+            const ipcRenderer = window.electron;
             ipcRenderer.send('view-changed', this.currentView);
 
             // Add a small delay to smooth out the transition
@@ -639,6 +662,7 @@ export class CheatingDaddyApp extends LitElement {
                 return html`
                     <main-view
                         .onStart=${() => this.handleStart()}
+                        .onStartDemo=${() => this.handleStartDemo()}
                         .onAPIKeyHelp=${() => this.handleAPIKeyHelp()}
                         .onLayoutModeChange=${layoutMode => this.handleLayoutModeChange(layoutMode)}
                     ></main-view>
@@ -798,9 +822,9 @@ export class CheatingDaddyApp extends LitElement {
         this.updateLayoutMode();
 
         // Notify main process about layout change for window resizing
-        if (window.require) {
+        if (window.electron) {
             try {
-                const { ipcRenderer } = window.require('electron');
+                const ipcRenderer = window.electron;
                 await ipcRenderer.invoke('update-sizes');
             } catch (error) {
                 console.error('Failed to update sizes in main process:', error);

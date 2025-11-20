@@ -287,9 +287,9 @@ export class StatusBar extends LitElement {
     }
 
     _setupIpcListeners() {
-        if (!window.require) return;
+        if (!window.electron) return;
 
-        const { ipcRenderer } = window.require('electron');
+        const ipcRenderer = window.electron;
 
         // Listen for status updates to determine AI state
         this._statusUpdateHandler = (_, status) => {
@@ -300,9 +300,9 @@ export class StatusBar extends LitElement {
     }
 
     _cleanupIpcListeners() {
-        if (!window.require) return;
+        if (!window.electron) return;
 
-        const { ipcRenderer } = window.require('electron');
+        const ipcRenderer = window.electron;
         if (this._statusUpdateHandler) {
             ipcRenderer.removeListener('update-status', this._statusUpdateHandler);
         }

@@ -806,6 +806,8 @@ export class LaunchWizard extends LitElement {
                 <div class="permission-description">
                     We need to capture your screen to provide AI assistance based on what you're seeing.
                     This allows the AI to understand the context and provide relevant help.
+                    <br><br>
+                    <em>Note: For security, browsers require this permission each time you start a new session.</em>
                 </div>
                 <div class="permission-example">
                     <div class="permission-example-title">What will be captured:</div>

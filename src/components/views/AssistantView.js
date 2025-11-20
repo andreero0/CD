@@ -735,8 +735,8 @@ export class AssistantView extends LitElement {
         document.addEventListener('keydown', this.boundKeyHandler);
 
         // Set up IPC listeners for keyboard shortcuts
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
+        if (window.electron) {
+            const ipcRenderer = window.electron;
 
             this.handlePreviousResponse = () => {
                 console.log('Received navigate-previous-response message');
@@ -790,8 +790,8 @@ export class AssistantView extends LitElement {
         document.removeEventListener('keydown', this.boundKeyHandler);
 
         // Clean up IPC listeners
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
+        if (window.electron) {
+            const ipcRenderer = window.electron;
             if (this.handlePreviousResponse) {
                 ipcRenderer.removeListener('navigate-previous-response', this.handlePreviousResponse);
             }
