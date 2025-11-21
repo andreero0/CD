@@ -174,7 +174,8 @@ export class TranscriptPanel extends LitElement {
 
     addTranscriptEntry(text) {
         // Parse the speaker format: "[Interviewer]: text" or "[Candidate]: text"
-        const speakerRegex = /\[(\w+)\]:\s*(.+)/;
+        // Updated regex to support multi-word speaker labels like "[Interviewer 1]:", "[Audience Member]:", etc.
+        const speakerRegex = /\[([^\]]+)\]:\s*(.+)/;
         const match = text.match(speakerRegex);
 
         if (match) {
@@ -230,19 +231,18 @@ export class TranscriptPanel extends LitElement {
     }
 
     getSpeakerIcon(speaker) {
-        return speaker === 'Interviewer' ? '▶' : '◀';
+        // "You" is the candidate/user, everyone else is the other party
+        return speaker === 'You' ? '◀' : '▶';
     }
 
     getSpeakerClass(speaker) {
-        return speaker === 'Interviewer' ? 'interviewer' : 'candidate';
+        // "You" is the candidate/user, everyone else is the other party (interviewer, prospect, etc.)
+        return speaker === 'You' ? 'candidate' : 'interviewer';
     }
 
     getSpeakerLabel(speaker) {
-        if (speaker === 'Interviewer') {
-            return 'Interviewer';
-        } else if (speaker === 'Candidate') {
-            return 'You';
-        }
+        // Display the speaker label as-is, as it comes from the backend with proper context
+        // (e.g., "Interviewer 1", "Decision Maker", "Prospect", etc.)
         return speaker;
     }
 
