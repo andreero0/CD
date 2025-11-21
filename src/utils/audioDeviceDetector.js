@@ -1,13 +1,14 @@
 /**
  * Audio Device Detection Utility
  * Detects BlackHole and other virtual audio devices for system audio capture
+ * Browser-compatible module - uses only Web APIs
  */
 
 /**
  * Detect if BlackHole virtual audio device is installed
  * @returns {Promise<{installed: boolean, deviceId: string|null, deviceLabel: string|null}>}
  */
-async function detectBlackHole() {
+window.detectBlackHole = async function detectBlackHole() {
     try {
         const devices = await navigator.mediaDevices.enumerateDevices();
 
@@ -47,7 +48,7 @@ async function detectBlackHole() {
  * Get all available audio input devices
  * @returns {Promise<Array<{deviceId: string, label: string, kind: string}>>}
  */
-async function getAllAudioInputDevices() {
+window.getAllAudioInputDevices = async function getAllAudioInputDevices() {
     try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         return devices
@@ -68,7 +69,7 @@ async function getAllAudioInputDevices() {
  * @param {string} deviceId - The device ID to check
  * @returns {Promise<boolean>}
  */
-async function isDeviceAvailable(deviceId) {
+window.isDeviceAvailable = async function isDeviceAvailable(deviceId) {
     try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         return devices.some(device => device.deviceId === deviceId);
@@ -83,7 +84,7 @@ async function isDeviceAvailable(deviceId) {
  * @param {string} deviceId - The device ID to test
  * @returns {Promise<{success: boolean, error: string|null}>}
  */
-async function testAudioCapture(deviceId) {
+window.testAudioCapture = async function testAudioCapture(deviceId) {
     let stream = null;
     try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -131,11 +132,7 @@ async function testAudioCapture(deviceId) {
             error: error.message
         };
     }
-}
-
-module.exports = {
-    detectBlackHole,
-    getAllAudioInputDevices,
-    isDeviceAvailable,
-    testAudioCapture
 };
+
+// Expose functions globally for browser context
+console.log('Audio device detector loaded - functions available on window object');

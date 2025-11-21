@@ -2,8 +2,8 @@
 // SECURITY FIX: Use the exposed electron API from preload script instead of require
 const ipcRenderer = window.electron;
 
-// Import audio device detection utilities
-const { detectBlackHole, getAllAudioInputDevices, testAudioCapture } = require('./audioDeviceDetector.js');
+// Audio device detection utilities are loaded from audioDeviceDetector.js
+// Functions available: window.detectBlackHole, window.getAllAudioInputDevices, window.testAudioCapture
 
 // Initialize random display name for UI components
 window.randomDisplayName = null;
@@ -254,7 +254,7 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
             if (audioMode === 'speaker_only' || audioMode === 'both') {
                 // Try to detect BlackHole virtual audio device
                 console.log('Detecting BlackHole virtual audio device...');
-                const blackHoleInfo = await detectBlackHole();
+                const blackHoleInfo = await window.detectBlackHole();
 
                 if (blackHoleInfo.installed) {
                     console.log('✅ BlackHole detected:', blackHoleInfo.deviceLabel);
