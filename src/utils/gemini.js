@@ -520,7 +520,9 @@ function killExistingSystemAudioDump() {
 }
 
 async function startMacOSAudioCapture(geminiSessionRef) {
-    if (process.platform !== 'darwin') return false;
+    if (process.platform !== 'darwin') {
+        throw new Error('macOS audio capture only available on macOS');
+    }
 
     // Kill any existing SystemAudioDump processes first
     await killExistingSystemAudioDump();
@@ -539,6 +541,11 @@ async function startMacOSAudioCapture(geminiSessionRef) {
 
     console.log('SystemAudioDump path:', systemAudioPath);
 
+    // Verify the binary exists
+    if (!require('fs').existsSync(systemAudioPath)) {
+        throw new Error('SystemAudioDump binary not found at: ' + systemAudioPath);
+    }
+
     // Spawn SystemAudioDump with stealth options
     const spawnOptions = {
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -556,61 +563,136 @@ async function startMacOSAudioCapture(geminiSessionRef) {
         spawnOptions.windowsHide = false;
     }
 
-    systemAudioProc = spawn(systemAudioPath, [], spawnOptions);
+    return new Promise((resolve, reject) => {
+        systemAudioProc = spawn(systemAudioPath, [], spawnOptions);
 
-    if (!systemAudioProc.pid) {
-        console.error('Failed to start SystemAudioDump');
-        return false;
-    }
+        if (!systemAudioProc.pid) {
+            console.error('Failed to start SystemAudioDump');
+            reject(new Error('Failed to spawn SystemAudioDump process'));
+            return;
+        }
 
-    console.log('SystemAudioDump started with PID:', systemAudioProc.pid);
+        console.log('SystemAudioDump started with PID:', systemAudioProc.pid);
 
-    const CHUNK_DURATION = 0.1;
-    const SAMPLE_RATE = 24000;
-    const BYTES_PER_SAMPLE = 2;
-    const CHANNELS = 2;
-    const CHUNK_SIZE = SAMPLE_RATE * BYTES_PER_SAMPLE * CHANNELS * CHUNK_DURATION;
+        let stderrBuffer = '';
+        let hasReceivedAudio = false;
+        let startupTimeout = null;
 
-    let audioBuffer = Buffer.alloc(0);
+        const CHUNK_DURATION = 0.1;
+        const SAMPLE_RATE = 24000;
+        const BYTES_PER_SAMPLE = 2;
+        const CHANNELS = 2;
+        const CHUNK_SIZE = SAMPLE_RATE * BYTES_PER_SAMPLE * CHANNELS * CHUNK_DURATION;
 
-    systemAudioProc.stdout.on('data', data => {
-        audioBuffer = Buffer.concat([audioBuffer, data]);
+        let audioBuffer = Buffer.alloc(0);
 
-        while (audioBuffer.length >= CHUNK_SIZE) {
-            const chunk = audioBuffer.slice(0, CHUNK_SIZE);
-            audioBuffer = audioBuffer.slice(CHUNK_SIZE);
-
-            const monoChunk = CHANNELS === 2 ? convertStereoToMono(chunk) : chunk;
-            const base64Data = monoChunk.toString('base64');
-            sendAudioToGemini(base64Data, geminiSessionRef);
-
-            if (process.env.DEBUG_AUDIO) {
-                console.log(`Processed audio chunk: ${chunk.length} bytes`);
-                saveDebugAudio(monoChunk, 'system_audio');
+        systemAudioProc.stdout.on('data', data => {
+            // First audio data received - clear startup timeout
+            if (!hasReceivedAudio) {
+                hasReceivedAudio = true;
+                if (startupTimeout) {
+                    clearTimeout(startupTimeout);
+                    startupTimeout = null;
+                }
+                console.log('SystemAudioDump: Receiving audio data successfully');
+                resolve(true);
             }
-        }
 
-        const maxBufferSize = SAMPLE_RATE * BYTES_PER_SAMPLE * 1;
-        if (audioBuffer.length > maxBufferSize) {
-            audioBuffer = audioBuffer.slice(-maxBufferSize);
-        }
+            audioBuffer = Buffer.concat([audioBuffer, data]);
+
+            while (audioBuffer.length >= CHUNK_SIZE) {
+                const chunk = audioBuffer.slice(0, CHUNK_SIZE);
+                audioBuffer = audioBuffer.slice(CHUNK_SIZE);
+
+                const monoChunk = CHANNELS === 2 ? convertStereoToMono(chunk) : chunk;
+                const base64Data = monoChunk.toString('base64');
+                sendAudioToGemini(base64Data, geminiSessionRef);
+
+                if (process.env.DEBUG_AUDIO) {
+                    console.log(`Processed audio chunk: ${chunk.length} bytes`);
+                    saveDebugAudio(monoChunk, 'system_audio');
+                }
+            }
+
+            const maxBufferSize = SAMPLE_RATE * BYTES_PER_SAMPLE * 1;
+            if (audioBuffer.length > maxBufferSize) {
+                audioBuffer = audioBuffer.slice(-maxBufferSize);
+            }
+        });
+
+        systemAudioProc.stderr.on('data', data => {
+            const errorText = data.toString();
+            stderrBuffer += errorText;
+            console.error('SystemAudioDump stderr:', errorText);
+
+            // Check for permission errors
+            if (errorText.includes('-3805') ||
+                errorText.includes('ScreenCaptureKit') ||
+                errorText.includes('permission') ||
+                errorText.includes('Screen Recording')) {
+
+                const permissionError = 'Screen Recording permission required. Please grant permission in System Settings → Privacy & Security → Screen Recording and enable the app (Terminal.app or Prism.app).';
+                console.error('Permission error detected:', permissionError);
+                sendToRenderer('update-status', 'Error: ' + permissionError);
+
+                // Don't reject immediately - let the timeout handle it
+                // This allows the user to see the full error message
+            }
+        });
+
+        systemAudioProc.on('close', code => {
+            console.log('SystemAudioDump process closed with code:', code);
+            systemAudioProc = null;
+
+            if (!hasReceivedAudio) {
+                // Process closed before receiving audio - likely a permission error
+                let errorMessage = 'SystemAudioDump closed unexpectedly';
+                if (stderrBuffer) {
+                    errorMessage += ': ' + stderrBuffer.trim();
+                }
+                if (code !== 0) {
+                    errorMessage += ' (exit code: ' + code + ')';
+                }
+                reject(new Error(errorMessage));
+            }
+        });
+
+        systemAudioProc.on('error', err => {
+            console.error('SystemAudioDump process error:', err);
+            systemAudioProc = null;
+            reject(err);
+        });
+
+        // Set a 5-second timeout for receiving first audio data
+        // If no audio is received, it's likely a permission issue
+        startupTimeout = setTimeout(() => {
+            if (!hasReceivedAudio) {
+                console.error('SystemAudioDump timeout: No audio data received after 5 seconds');
+
+                let errorMessage = 'SystemAudioDump failed to capture audio. ';
+
+                if (stderrBuffer.includes('-3805') ||
+                    stderrBuffer.includes('ScreenCaptureKit') ||
+                    stderrBuffer.includes('permission')) {
+                    errorMessage += 'This is likely a Screen Recording permission issue. Please:\n\n' +
+                                  '1. Open System Settings → Privacy & Security → Screen Recording\n' +
+                                  '2. Enable the app you are running (Terminal.app if using npm start, or Prism.app if using DMG)\n' +
+                                  '3. Restart the app';
+                } else if (stderrBuffer) {
+                    errorMessage += 'Error: ' + stderrBuffer.trim();
+                } else {
+                    errorMessage += 'No error details available. Check Terminal logs.';
+                }
+
+                // Kill the process
+                if (systemAudioProc) {
+                    systemAudioProc.kill('SIGTERM');
+                }
+
+                reject(new Error(errorMessage));
+            }
+        }, 5000);
     });
-
-    systemAudioProc.stderr.on('data', data => {
-        console.error('SystemAudioDump stderr:', data.toString());
-    });
-
-    systemAudioProc.on('close', code => {
-        console.log('SystemAudioDump process closed with code:', code);
-        systemAudioProc = null;
-    });
-
-    systemAudioProc.on('error', err => {
-        console.error('SystemAudioDump process error:', err);
-        systemAudioProc = null;
-    });
-
-    return true;
 }
 
 function convertStereoToMono(stereoBuffer) {
