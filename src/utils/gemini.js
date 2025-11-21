@@ -625,8 +625,17 @@ async function startMacOSAudioCapture(geminiSessionRef) {
             stderrBuffer += errorText;
             console.error('SystemAudioDump stderr:', errorText);
 
-            // Check for permission errors
-            if (errorText.includes('-3805') ||
+            // Check for "stream stopped by system" error (-3821)
+            if (errorText.includes('-3821') || errorText.includes('Stream was stopped by the system')) {
+                const systemStopError = 'System audio capture was interrupted by macOS. This usually happens when the app loses focus or macOS background restrictions activate. The app may need to remain visible for system audio capture to work reliably.';
+                console.error('System interruption detected:', systemStopError);
+                sendToRenderer('update-status', 'Warning: ' + systemStopError);
+
+                // Note: We don't reject here because audio was working initially
+                // The system just stopped it mid-session
+            }
+            // Check for permission errors (-3805)
+            else if (errorText.includes('-3805') ||
                 errorText.includes('ScreenCaptureKit') ||
                 errorText.includes('permission') ||
                 errorText.includes('Screen Recording')) {
