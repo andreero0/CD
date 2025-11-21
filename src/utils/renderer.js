@@ -1113,6 +1113,141 @@ async function getAllConversationSessions() {
     });
 }
 
+async function deleteConversationSession(sessionId) {
+    if (!conversationDB) {
+        await initConversationStorage();
+    }
+
+    const transaction = conversationDB.transaction(['sessions'], 'readwrite');
+    const store = transaction.objectStore('sessions');
+
+    return new Promise((resolve, reject) => {
+        const request = store.delete(sessionId);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = async () => {
+            console.log('Conversation session deleted:', sessionId);
+
+            // Also delete associated RAG data if available
+            try {
+                if (typeof window.deleteSessionData === 'function') {
+                    await window.deleteSessionData(sessionId);
+                    console.log('Associated RAG data deleted for session:', sessionId);
+                }
+            } catch (error) {
+                console.warn('Failed to delete RAG data for session:', sessionId, error);
+            }
+
+            resolve(request.result);
+        };
+    });
+}
+
+async function deleteMultipleConversationSessions(sessionIds) {
+    if (!conversationDB) {
+        await initConversationStorage();
+    }
+
+    const transaction = conversationDB.transaction(['sessions'], 'readwrite');
+    const store = transaction.objectStore('sessions');
+
+    return new Promise((resolve, reject) => {
+        let completed = 0;
+        const total = sessionIds.length;
+        const errors = [];
+
+        if (total === 0) {
+            resolve({ success: 0, failed: 0 });
+            return;
+        }
+
+        for (const sessionId of sessionIds) {
+            const request = store.delete(sessionId);
+
+            request.onsuccess = async () => {
+                // Also delete associated RAG data
+                try {
+                    if (typeof window.deleteSessionData === 'function') {
+                        await window.deleteSessionData(sessionId);
+                    }
+                } catch (error) {
+                    console.warn('Failed to delete RAG data for session:', sessionId, error);
+                }
+
+                completed++;
+                if (completed === total) {
+                    console.log(`Deleted ${total - errors.length} sessions successfully`);
+                    resolve({ success: total - errors.length, failed: errors.length, errors });
+                }
+            };
+
+            request.onerror = () => {
+                errors.push({ sessionId, error: request.error });
+                completed++;
+                if (completed === total) {
+                    resolve({ success: total - errors.length, failed: errors.length, errors });
+                }
+            };
+        }
+    });
+}
+
+async function clearAllConversationSessions() {
+    if (!conversationDB) {
+        await initConversationStorage();
+    }
+
+    const transaction = conversationDB.transaction(['sessions'], 'readwrite');
+    const store = transaction.objectStore('sessions');
+
+    return new Promise((resolve, reject) => {
+        const request = store.clear();
+        request.onerror = () => reject(request.error);
+        request.onsuccess = async () => {
+            console.log('All conversation sessions cleared');
+
+            // Also clear all RAG data
+            try {
+                if (typeof window.clearAllRAGData === 'function') {
+                    await window.clearAllRAGData();
+                    console.log('All RAG data cleared');
+                }
+            } catch (error) {
+                console.warn('Failed to clear RAG data:', error);
+            }
+
+            resolve(request.result);
+        };
+    });
+}
+
+async function archiveConversationSession(sessionId, archived = true) {
+    if (!conversationDB) {
+        await initConversationStorage();
+    }
+
+    // Get the session first
+    const session = await getConversationSession(sessionId);
+    if (!session) {
+        throw new Error('Session not found');
+    }
+
+    // Update with archived flag
+    session.archived = archived;
+    session.archivedAt = archived ? Date.now() : null;
+
+    const transaction = conversationDB.transaction(['sessions'], 'readwrite');
+    const store = transaction.objectStore('sessions');
+
+    return new Promise((resolve, reject) => {
+        const request = store.put(session);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+            console.log(`Session ${archived ? 'archived' : 'unarchived'}:`, sessionId);
+            resolve(request.result);
+        };
+    });
+}
+
 // Listen for conversation data from main process
 ipcRenderer.on('save-conversation-turn', async (data) => {
     // Check if incognito mode is enabled
@@ -1220,6 +1355,10 @@ const prism = {
     getConversationSession,
     initConversationStorage,
     saveConversationSession,
+    deleteConversationSession,
+    deleteMultipleConversationSessions,
+    clearAllConversationSessions,
+    archiveConversationSession,
 
     // Content protection function
     getContentProtection: () => {

@@ -353,7 +353,8 @@ if (typeof window !== 'undefined') {
     initRAGStorage().catch(console.error);
 }
 
-module.exports = {
+// Export for both CommonJS (Node.js) and browser global scope
+const exportedFunctions = {
     initRAGStorage,
     saveEmbedding,
     saveBatchEmbeddings,
@@ -366,3 +367,14 @@ module.exports = {
     clearAllRAGData,
     getRAGStorageStats,
 };
+
+// Browser global scope export
+if (typeof window !== 'undefined') {
+    window.deleteSessionData = deleteSessionData;
+    window.clearAllRAGData = clearAllRAGData;
+}
+
+// CommonJS export for Node.js/tests
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = exportedFunctions;
+}

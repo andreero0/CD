@@ -303,6 +303,181 @@ export class HistoryView extends LitElement {
             background: rgba(255, 0, 0, 0.1);
             color: #ff4444;
         }
+
+        .action-bar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .action-button {
+            background: var(--button-background);
+            color: var(--text-color);
+            border: 1px solid var(--button-border);
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .action-button:hover {
+            background: var(--hover-background);
+        }
+
+        .action-button.danger {
+            background: rgba(255, 68, 68, 0.1);
+            color: #ff4444;
+            border-color: rgba(255, 68, 68, 0.3);
+        }
+
+        .action-button.danger:hover {
+            background: rgba(255, 68, 68, 0.2);
+        }
+
+        .action-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .session-item-wrapper {
+            position: relative;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .session-checkbox {
+            cursor: pointer;
+        }
+
+        .session-item-actions {
+            position: absolute;
+            right: 8px;
+            top: 8px;
+            display: flex;
+            gap: 4px;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+        }
+
+        .session-item-wrapper:hover .session-item-actions {
+            opacity: 1;
+        }
+
+        .session-action-button {
+            background: var(--button-background);
+            border: 1px solid var(--button-border);
+            color: var(--text-color);
+            padding: 4px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .session-action-button:hover {
+            background: var(--hover-background);
+        }
+
+        .session-action-button.delete:hover {
+            background: rgba(255, 0, 0, 0.1);
+            color: #ff4444;
+        }
+
+        .session-action-button.archive:hover {
+            background: rgba(255, 165, 0, 0.1);
+            color: #ffaa00;
+        }
+
+        .confirm-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            backdrop-filter: blur(4px);
+        }
+
+        .confirm-dialog {
+            background: var(--input-background);
+            border: 1px solid var(--button-border);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        .confirm-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-color);
+            margin-bottom: 12px;
+        }
+
+        .confirm-message {
+            font-size: 13px;
+            color: var(--description-color);
+            margin-bottom: 20px;
+            line-height: 1.4;
+        }
+
+        .confirm-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        .confirm-button {
+            background: var(--button-background);
+            color: var(--text-color);
+            border: 1px solid var(--button-border);
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .confirm-button:hover {
+            background: var(--hover-background);
+        }
+
+        .confirm-button.danger {
+            background: #ff4444;
+            color: white;
+            border-color: #ff4444;
+        }
+
+        .confirm-button.danger:hover {
+            background: #ff6666;
+        }
+
+        .archived-badge {
+            display: inline-block;
+            background: rgba(255, 165, 0, 0.2);
+            color: #ffaa00;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 600;
+            margin-left: 6px;
+        }
     `;
 
     static properties = {
@@ -315,6 +490,10 @@ export class HistoryView extends LitElement {
         exportResponses: { type: Array, state: true },
         exportSessionInfo: { type: Object, state: true },
         exportProfile: { type: String, state: true },
+        selectionMode: { type: Boolean, state: true },
+        selectedSessions: { type: Set, state: true },
+        showArchived: { type: Boolean, state: true },
+        confirmDialog: { type: Object, state: true },
     };
 
     constructor() {
@@ -327,6 +506,10 @@ export class HistoryView extends LitElement {
         this.exportResponses = [];
         this.exportSessionInfo = {};
         this.exportProfile = 'interview';
+        this.selectionMode = false;
+        this.selectedSessions = new Set();
+        this.showArchived = false;
+        this.confirmDialog = null;
         // Load saved responses from localStorage
         try {
             this.savedResponses = JSON.parse(localStorage.getItem('savedResponses') || '[]');
@@ -450,6 +633,153 @@ export class HistoryView extends LitElement {
         this.showExportDialog = false;
     }
 
+    toggleSelectionMode() {
+        this.selectionMode = !this.selectionMode;
+        if (!this.selectionMode) {
+            this.selectedSessions.clear();
+        }
+        this.requestUpdate();
+    }
+
+    toggleSessionSelection(sessionId) {
+        if (this.selectedSessions.has(sessionId)) {
+            this.selectedSessions.delete(sessionId);
+        } else {
+            this.selectedSessions.add(sessionId);
+        }
+        this.requestUpdate();
+    }
+
+    selectAllSessions() {
+        const visibleSessions = this.getVisibleSessions();
+        visibleSessions.forEach(session => this.selectedSessions.add(session.sessionId));
+        this.requestUpdate();
+    }
+
+    deselectAllSessions() {
+        this.selectedSessions.clear();
+        this.requestUpdate();
+    }
+
+    showConfirmDialog(title, message, onConfirm) {
+        this.confirmDialog = { title, message, onConfirm };
+    }
+
+    closeConfirmDialog() {
+        this.confirmDialog = null;
+    }
+
+    async handleDeleteSession(sessionId, event) {
+        if (event) {
+            event.stopPropagation();
+        }
+
+        this.showConfirmDialog(
+            'Delete Conversation',
+            'Are you sure you want to delete this conversation? This action cannot be undone.',
+            async () => {
+                try {
+                    const isViewingThisSession = this.selectedSession?.sessionId === sessionId;
+                    await prism.deleteConversationSession(sessionId);
+                    await this.loadSessions();
+
+                    // If we were viewing this session, go back to list
+                    if (isViewingThisSession) {
+                        this.selectedSession = null;
+                    }
+
+                    this.closeConfirmDialog();
+                } catch (error) {
+                    console.error('Error deleting session:', error);
+                    alert('Failed to delete conversation. Please try again.');
+                }
+            }
+        );
+    }
+
+    async handleDeleteSelected() {
+        const count = this.selectedSessions.size;
+        if (count === 0) return;
+
+        this.showConfirmDialog(
+            'Delete Multiple Conversations',
+            `Are you sure you want to delete ${count} conversation${count > 1 ? 's' : ''}? This action cannot be undone.`,
+            async () => {
+                try {
+                    const sessionIds = Array.from(this.selectedSessions);
+                    await prism.deleteMultipleConversationSessions(sessionIds);
+                    this.selectedSessions.clear();
+                    this.selectionMode = false;
+                    await this.loadSessions();
+                    this.closeConfirmDialog();
+                } catch (error) {
+                    console.error('Error deleting sessions:', error);
+                    alert('Failed to delete conversations. Please try again.');
+                }
+            }
+        );
+    }
+
+    async handleClearAll() {
+        const count = this.getVisibleSessions().length;
+        if (count === 0) return;
+
+        const archiveText = this.showArchived ? ' archived' : '';
+        this.showConfirmDialog(
+            `Clear All${archiveText ? ' Archived' : ''} Conversations`,
+            `Are you sure you want to delete all ${count}${archiveText} conversation${count > 1 ? 's' : ''}? This action cannot be undone.`,
+            async () => {
+                try {
+                    if (this.showArchived) {
+                        // Delete only archived sessions
+                        const archivedSessionIds = this.sessions
+                            .filter(s => s.archived)
+                            .map(s => s.sessionId);
+                        await prism.deleteMultipleConversationSessions(archivedSessionIds);
+                    } else {
+                        // Clear all sessions
+                        await prism.clearAllConversationSessions();
+                    }
+                    await this.loadSessions();
+                    this.closeConfirmDialog();
+                } catch (error) {
+                    console.error('Error clearing sessions:', error);
+                    alert('Failed to clear conversations. Please try again.');
+                }
+            }
+        );
+    }
+
+    async handleArchiveSession(sessionId, event) {
+        if (event) {
+            event.stopPropagation();
+        }
+
+        try {
+            const session = this.sessions.find(s => s.sessionId === sessionId);
+            const isArchived = session?.archived;
+            await prism.archiveConversationSession(sessionId, !isArchived);
+            await this.loadSessions();
+        } catch (error) {
+            console.error('Error archiving session:', error);
+            alert('Failed to archive conversation. Please try again.');
+        }
+    }
+
+    toggleShowArchived() {
+        this.showArchived = !this.showArchived;
+    }
+
+    getVisibleSessions() {
+        return this.sessions.filter(session => {
+            if (this.showArchived) {
+                return session.archived === true;
+            } else {
+                return !session.archived;
+            }
+        });
+    }
+
     getProfileNames() {
         return {
             interview: 'Job Interview',
@@ -466,6 +796,9 @@ export class HistoryView extends LitElement {
             return html`<div class="loading">Loading conversation history...</div>`;
         }
 
+        const visibleSessions = this.getVisibleSessions();
+        const archivedCount = this.sessions.filter(s => s.archived).length;
+
         if (this.sessions.length === 0) {
             return html`
                 <div class="empty-state">
@@ -475,17 +808,122 @@ export class HistoryView extends LitElement {
             `;
         }
 
+        if (visibleSessions.length === 0 && this.showArchived) {
+            return html`
+                <div class="action-bar">
+                    <button class="action-button" @click=${this.toggleShowArchived}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M15 6l-6 6 6 6"/>
+                        </svg>
+                        Back to Active
+                    </button>
+                </div>
+                <div class="empty-state">
+                    <div class="empty-state-title">No archived conversations</div>
+                    <div>Archive conversations to organize your history</div>
+                </div>
+            `;
+        }
+
+        const allSelected = visibleSessions.length > 0 && visibleSessions.every(s => this.selectedSessions.has(s.sessionId));
+
         return html`
+            <div class="action-bar">
+                ${!this.showArchived
+                    ? html`
+                          <button class="action-button" @click=${this.toggleSelectionMode}>
+                              ${this.selectionMode ? 'Cancel Selection' : 'Select Multiple'}
+                          </button>
+                          ${this.selectionMode
+                              ? html`
+                                    <button class="action-button" @click=${allSelected ? this.deselectAllSessions : this.selectAllSessions}>
+                                        ${allSelected ? 'Deselect All' : 'Select All'}
+                                    </button>
+                                    <button class="action-button danger" @click=${this.handleDeleteSelected} ?disabled=${this.selectedSessions.size === 0}>
+                                        Delete Selected (${this.selectedSessions.size})
+                                    </button>
+                                `
+                              : ''}
+                          ${archivedCount > 0
+                              ? html`
+                                    <button class="action-button" @click=${this.toggleShowArchived}>
+                                        View Archived (${archivedCount})
+                                    </button>
+                                `
+                              : ''}
+                          ${visibleSessions.length > 0
+                              ? html`
+                                    <button class="action-button danger" @click=${this.handleClearAll}>
+                                        Clear All
+                                    </button>
+                                `
+                              : ''}
+                      `
+                    : html`
+                          <button class="action-button" @click=${this.toggleShowArchived}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                  <path d="M15 6l-6 6 6 6"/>
+                              </svg>
+                              Back to Active
+                          </button>
+                          ${visibleSessions.length > 0
+                              ? html`
+                                    <button class="action-button danger" @click=${this.handleClearAll}>
+                                        Delete All Archived
+                                    </button>
+                                `
+                              : ''}
+                      `}
+            </div>
             <div class="sessions-list">
-                ${this.sessions.map(
+                ${visibleSessions.map(
                     session => html`
-                        <button class="session-item" @click=${() => this.handleSessionClick(session)}>
-                            <div class="session-header">
-                                <div class="session-date">${this.formatDate(session.timestamp)}</div>
-                                <div class="session-time">${this.formatTime(session.timestamp)}</div>
-                            </div>
-                            <div class="session-preview">${this.getSessionPreview(session)}</div>
-                        </button>
+                        <div class="session-item-wrapper">
+                            ${this.selectionMode
+                                ? html`
+                                      <input
+                                          type="checkbox"
+                                          class="session-checkbox"
+                                          .checked=${this.selectedSessions.has(session.sessionId)}
+                                          @change=${() => this.toggleSessionSelection(session.sessionId)}
+                                      />
+                                  `
+                                : ''}
+                            <button class="session-item ${this.selectionMode ? '' : ''}" @click=${() => !this.selectionMode && this.handleSessionClick(session)}>
+                                <div class="session-header">
+                                    <div class="session-date">
+                                        ${this.formatDate(session.timestamp)}
+                                        ${session.archived ? html`<span class="archived-badge">ARCHIVED</span>` : ''}
+                                    </div>
+                                    <div class="session-time">${this.formatTime(session.timestamp)}</div>
+                                </div>
+                                <div class="session-preview">${this.getSessionPreview(session)}</div>
+                                ${!this.selectionMode
+                                    ? html`
+                                          <div class="session-item-actions">
+                                              <button
+                                                  class="session-action-button archive"
+                                                  @click=${(e) => this.handleArchiveSession(session.sessionId, e)}
+                                                  title="${session.archived ? 'Unarchive' : 'Archive'} conversation"
+                                              >
+                                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                      <path d="M3 3h18v6H3zM3 9h18v12H3zM9 14h6"/>
+                                                  </svg>
+                                              </button>
+                                              <button
+                                                  class="session-action-button delete"
+                                                  @click=${(e) => this.handleDeleteSession(session.sessionId, e)}
+                                                  title="Delete conversation"
+                                              >
+                                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                      <path d="M3 6h18M8 6V4h8v2M10 11v6M14 11v6M5 6h14l-1 14H6z"/>
+                                                  </svg>
+                                              </button>
+                                          </div>
+                                      `
+                                    : ''}
+                            </button>
+                        </div>
                     `
                 )}
             </div>
@@ -583,6 +1021,20 @@ export class HistoryView extends LitElement {
                     </svg>
                     Back to Sessions
                 </button>
+                <button class="back-button" @click=${(e) => this.handleArchiveSession(this.selectedSession.sessionId, e)} title="${this.selectedSession.archived ? 'Unarchive' : 'Archive'} this session">
+                    <svg
+                        width="16px"
+                        height="16px"
+                        stroke-width="1.7"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        color="currentColor"
+                    >
+                        <path d="M3 3h18v6H3zM3 9h18v12H3zM9 14h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+                    </svg>
+                    ${this.selectedSession.archived ? 'Unarchive' : 'Archive'}
+                </button>
                 <button class="back-button" @click=${this.handleExportSession} title="Export this session">
                     <svg
                         width="16px"
@@ -597,6 +1049,20 @@ export class HistoryView extends LitElement {
                         <path d="M12 16V4M12 4L15.5 7.5M12 4L8.5 7.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
                     </svg>
                     Export
+                </button>
+                <button class="back-button" @click=${(e) => this.handleDeleteSession(this.selectedSession.sessionId, e)} title="Delete this session" style="color: #ff4444;">
+                    <svg
+                        width="16px"
+                        height="16px"
+                        stroke-width="1.7"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        color="currentColor"
+                    >
+                        <path d="M3 6h18M8 6V4h8v2M10 11v6M14 11v6M5 6h14l-1 14H6z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+                    </svg>
+                    Delete
                 </button>
                 <div class="legend">
                     <div class="legend-item">
@@ -614,6 +1080,16 @@ export class HistoryView extends LitElement {
                     ? messages.map(message => html` <div class="message ${message.type}">${message.content}</div> `)
                     : html`<div class="empty-state">No conversation data available</div>`}
             </div>
+            ${this.showExportDialog
+                ? html`
+                      <export-dialog
+                          .responses=${this.exportResponses}
+                          .sessionInfo=${this.exportSessionInfo}
+                          .profile=${this.exportProfile}
+                          .onClose=${() => this.handleCloseExportDialog()}
+                      ></export-dialog>
+                  `
+                : ''}
         `;
     }
 
@@ -653,6 +1129,24 @@ export class HistoryView extends LitElement {
                               .profile=${this.exportProfile}
                               .onClose=${() => this.handleCloseExportDialog()}
                           ></export-dialog>
+                      `
+                    : ''}
+                ${this.confirmDialog
+                    ? html`
+                          <div class="confirm-overlay" @click=${this.closeConfirmDialog}>
+                              <div class="confirm-dialog" @click=${(e) => e.stopPropagation()}>
+                                  <div class="confirm-title">${this.confirmDialog.title}</div>
+                                  <div class="confirm-message">${this.confirmDialog.message}</div>
+                                  <div class="confirm-actions">
+                                      <button class="confirm-button" @click=${this.closeConfirmDialog}>
+                                          Cancel
+                                      </button>
+                                      <button class="confirm-button danger" @click=${this.confirmDialog.onConfirm}>
+                                          Confirm
+                                      </button>
+                                  </div>
+                              </div>
+                          </div>
                       `
                     : ''}
             </div>
