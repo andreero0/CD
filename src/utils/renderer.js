@@ -301,7 +301,7 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
                         });
 
                         console.log('BlackHole audio capture started successfully');
-                        setupLinuxMicProcessing(blackHoleStream); // Reuse mic processing for BlackHole
+                        setupBlackHoleSystemAudioProcessing(blackHoleStream); // Use dedicated BlackHole processing
                         audioCapturMethod = 'blackhole';
 
                         // Store for status display
@@ -643,6 +643,57 @@ function setupLinuxMicProcessing(micStream) {
 
     // Store processor reference for cleanup
     micAudioProcessor = micProcessor;
+}
+
+function setupBlackHoleSystemAudioProcessing(blackHoleStream) {
+    // Setup BlackHole system audio processing (macOS virtual audio device)
+    // This captures system audio and displays it on the System meter, not Mic meter
+    const blackHoleAudioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
+    const blackHoleSource = blackHoleAudioContext.createMediaStreamSource(blackHoleStream);
+    const blackHoleProcessor = blackHoleAudioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
+
+    let audioBuffer = [];
+    const samplesPerChunk = SAMPLE_RATE * AUDIO_CHUNK_DURATION;
+
+    blackHoleProcessor.onaudioprocess = async e => {
+        const inputData = e.inputBuffer.getChannelData(0);
+
+        // Calculate RMS audio level for UI display (System bars, not Mic bars)
+        let sum = 0;
+        for (let i = 0; i < inputData.length; i++) {
+            sum += inputData[i] * inputData[i];
+        }
+        const rms = Math.sqrt(sum / inputData.length);
+        window.audioTracker.systemLevel = Math.min(1.0, rms * 10); // Update SYSTEM level, not mic
+        window.audioTracker.lastUpdate = Date.now();
+
+        audioBuffer.push(...inputData);
+
+        // Prevent memory leak: if buffer grows too large, remove oldest data
+        if (audioBuffer.length > MAX_AUDIO_BUFFER_SIZE * samplesPerChunk) {
+            console.warn('Audio buffer overflow detected, removing oldest data');
+            audioBuffer.splice(0, samplesPerChunk * 10); // Remove 1 second of old data
+        }
+
+        // Process audio in chunks
+        while (audioBuffer.length >= samplesPerChunk) {
+            const chunk = audioBuffer.splice(0, samplesPerChunk);
+            const pcmData16 = convertFloat32ToInt16(chunk);
+            const base64Data = arrayBufferToBase64(pcmData16.buffer);
+
+            // Send to system audio endpoint (not mic endpoint)
+            await ipcRenderer.invoke('send-audio-content', {
+                data: base64Data,
+                mimeType: 'audio/pcm;rate=24000',
+            });
+        }
+    };
+
+    blackHoleSource.connect(blackHoleProcessor);
+    blackHoleProcessor.connect(blackHoleAudioContext.destination);
+
+    // Store processor reference for cleanup
+    audioProcessor = blackHoleProcessor;
 }
 
 function setupLinuxSystemAudioProcessing() {
