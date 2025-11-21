@@ -407,12 +407,22 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             // Periodically send speaker-labeled context to AI so it knows who is speaking
                             const now = Date.now();
                             if (now - lastContextSentTime >= CONTEXT_SEND_INTERVAL && speakerContextBuffer.trim()) {
-                                // Send accumulated context to AI
-                                geminiSessionRef.current.sendRealtimeInput({
-                                    text: `<context>\n${speakerContextBuffer.trim()}\n</context>`
-                                }).catch(err => {
-                                    console.error('Failed to send speaker context:', err);
-                                });
+                                // Send accumulated context to AI with defensive promise handling
+                                try {
+                                    const promise = geminiSessionRef.current?.sendRealtimeInput({
+                                        text: `<context>\n${speakerContextBuffer.trim()}\n</context>`
+                                    });
+
+                                    if (promise && typeof promise.catch === 'function') {
+                                        promise.catch(err => {
+                                            console.error('Failed to send speaker context:', err);
+                                        });
+                                    } else {
+                                        console.warn('[Speaker Context] sendRealtimeInput did not return a Promise, session may not be ready');
+                                    }
+                                } catch (err) {
+                                    console.error('[Speaker Context] Error calling sendRealtimeInput:', err);
+                                }
 
                                 // Reset buffer and timer
                                 speakerContextBuffer = '';

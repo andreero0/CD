@@ -44,7 +44,10 @@ const validChannels = {
         'clear-sensitive-data',
         'save-conversation-turn',
         'transcript-update',
-        'screenshot-captured'
+        'screenshot-captured',
+        'reconnection-status',
+        'reconnection-success',
+        'reconnection-failed'
     ]
 };
 
