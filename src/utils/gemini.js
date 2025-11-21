@@ -110,16 +110,17 @@ function sendSpeakerContextIfNeeded(currentSpeaker, geminiSessionRef, force = fa
                 console.log(`[Context Injection] Triggering send (reason: ${triggerReason}, buffer length: ${speakerContextBuffer.length})`);
             }
 
-            const promise = geminiSessionRef.current?.sendRealtimeInput({
-                text: `<context>\n${speakerContextBuffer.trim()}\n</context>`
-            });
-
-            if (promise && typeof promise.catch === 'function') {
-                promise.catch(err => {
-                    console.error('[Context Injection] Failed to send speaker context:', err);
+            if (geminiSessionRef.current && typeof geminiSessionRef.current.sendRealtimeInput === 'function') {
+                const promise = geminiSessionRef.current.sendRealtimeInput({
+                    text: `<context>\n${speakerContextBuffer.trim()}\n</context>`
                 });
-            } else {
-                console.warn('[Context Injection] sendRealtimeInput did not return a Promise');
+
+                if (promise && typeof promise.catch === 'function') {
+                    promise.catch(err => {
+                        console.error('[Context Injection] Failed to send speaker context:', err);
+                    });
+                }
+                // Silently skip if sendRealtimeInput returns undefined - normal during certain states
             }
 
             // Reset buffer and timer
@@ -572,19 +573,21 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
 
                                 // Send accumulated context to AI with defensive promise handling
                                 try {
-                                    const promise = geminiSessionRef.current?.sendRealtimeInput({
-                                        text: contextMessage
-                                    });
-
-                                    if (promise && typeof promise.catch === 'function') {
-                                        promise.catch(err => {
-                                            console.error('Failed to send speaker context:', err);
+                                    if (geminiSessionRef.current && typeof geminiSessionRef.current.sendRealtimeInput === 'function') {
+                                        const promise = geminiSessionRef.current.sendRealtimeInput({
+                                            text: contextMessage
                                         });
-                                    } else {
-                                        console.warn('[Speaker Context] sendRealtimeInput did not return a Promise, session may not be ready');
+
+                                        if (promise && typeof promise.catch === 'function') {
+                                            promise.catch(err => {
+                                                console.error('[Context Injection] Failed to send speaker context:', err);
+                                            });
+                                        }
+                                        // Session is ready but sendRealtimeInput returned undefined - this is OK during certain states
                                     }
+                                    // Silently skip if session not ready - this is normal during initialization/processing
                                 } catch (err) {
-                                    console.error('[Speaker Context] Error calling sendRealtimeInput:', err);
+                                    console.error('[Context Injection] Error calling sendRealtimeInput:', err);
                                 }
 
                                 // Reset buffer and timer
