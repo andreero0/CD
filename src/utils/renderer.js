@@ -2,6 +2,9 @@
 // SECURITY FIX: Use the exposed electron API from preload script instead of require
 const ipcRenderer = window.electron;
 
+// Audio device detection utilities are loaded from audioDeviceDetector.js
+// Functions available: window.detectBlackHole, window.getAllAudioInputDevices, window.testAudioCapture
+
 // Initialize random display name for UI components
 window.randomDisplayName = null;
 
@@ -242,28 +245,79 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
 
     try {
         if (isMacOS) {
-            // On macOS, use SystemAudioDump for audio and getDisplayMedia for screen
-            console.log('Starting macOS capture with SystemAudioDump...');
+            // On macOS, check for BlackHole first, then fallback to SystemAudioDump
+            console.log('Starting macOS capture...');
             console.log('Audio mode:', audioMode);
 
-            if (audioMode === 'speaker_only') {
-                console.log('Speaker-only mode: SystemAudioDump will capture system audio');
-                console.log('IMPORTANT: Screen Recording permission required for parent app');
-                console.log('  - If running via npm start: Enable Terminal.app in System Settings');
-                console.log('  - If running packaged DMG: Enable Prism.app in System Settings');
+            let audioCapturMethod = null;
+
+            if (audioMode === 'speaker_only' || audioMode === 'both') {
+                // Try to detect BlackHole virtual audio device
+                console.log('Detecting BlackHole virtual audio device...');
+                const blackHoleInfo = await window.detectBlackHole();
+
+                if (blackHoleInfo.installed) {
+                    console.log('✅ BlackHole detected:', blackHoleInfo.deviceLabel);
+                    console.log('Using BlackHole for system audio capture (background-compatible)');
+
+                    // Use BlackHole - works in background, no -3821 errors
+                    try {
+                        const blackHoleStream = await navigator.mediaDevices.getUserMedia({
+                            audio: {
+                                deviceId: { exact: blackHoleInfo.deviceId },
+                                sampleRate: SAMPLE_RATE,
+                                channelCount: 1,
+                                echoCancellation: false,
+                                noiseSuppression: false,
+                                autoGainControl: false,
+                            }
+                        });
+
+                        console.log('BlackHole audio capture started successfully');
+                        setupLinuxMicProcessing(blackHoleStream); // Reuse mic processing for BlackHole
+                        audioCapturMethod = 'blackhole';
+
+                        // Store for status display
+                        window.audioSource = {
+                            type: 'blackhole',
+                            label: blackHoleInfo.deviceLabel,
+                            worksInBackground: true
+                        };
+                    } catch (blackHoleError) {
+                        console.error('Failed to capture from BlackHole:', blackHoleError);
+                        console.log('Falling back to SystemAudioDump...');
+                    }
+                }
+
+                // Fallback to SystemAudioDump if BlackHole not available or failed
+                if (!audioCapturMethod) {
+                    console.log('BlackHole not detected or failed - using SystemAudioDump fallback');
+                    console.log('⚠️  SystemAudioDump may stop when app loses focus (error -3821)');
+                    console.log('IMPORTANT: Screen Recording permission required for parent app');
+                    console.log('  - If running via npm start: Enable Terminal.app in System Settings');
+                    console.log('  - If running packaged DMG: Enable Prism.app in System Settings');
+
+                    // Start SystemAudioDump
+                    console.log('Invoking start-macos-audio IPC call...');
+                    const audioResult = await ipcRenderer.invoke('start-macos-audio');
+                    console.log('Audio result:', audioResult);
+
+                    if (!audioResult.success) {
+                        console.error('SystemAudioDump failed to start:', audioResult.error);
+                        throw new Error('Failed to start macOS audio capture: ' + audioResult.error);
+                    }
+
+                    console.log('SystemAudioDump started successfully');
+                    audioCapturMethod = 'systemaudiodump';
+
+                    // Store for status display
+                    window.audioSource = {
+                        type: 'systemaudiodump',
+                        label: 'SystemAudioDump (ScreenCaptureKit)',
+                        worksInBackground: false
+                    };
+                }
             }
-
-            // Start macOS audio capture
-            console.log('Invoking start-macos-audio IPC call...');
-            const audioResult = await ipcRenderer.invoke('start-macos-audio');
-            console.log('Audio result:', audioResult);
-
-            if (!audioResult.success) {
-                console.error('SystemAudioDump failed to start:', audioResult.error);
-                throw new Error('Failed to start macOS audio capture: ' + audioResult.error);
-            }
-
-            console.log('SystemAudioDump started successfully');
 
             // Use existing screen stream from wizard, or request new one
             if (existingScreenStream) {

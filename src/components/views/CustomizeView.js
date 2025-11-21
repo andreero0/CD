@@ -857,6 +857,54 @@ export class CustomizeView extends LitElement {
         root.style.setProperty('--response-font-size', `${this.fontSize}px`);
     }
 
+    renderAudioSourceStatus() {
+        // Check if audio source info is available (set during session start)
+        const audioSource = window.audioSource;
+        const isMac = prism.isMacOS || navigator.platform.includes('Mac');
+
+        if (!isMac) {
+            return html``; // Only show on macOS
+        }
+
+        if (!audioSource) {
+            return html`
+                <div class="form-group">
+                    <label class="form-label">Audio Source Status</label>
+                    <div class="form-description" style="padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                        ℹ️ <strong>Not yet started</strong><br>
+                        Audio source will be detected when you start a session.
+                    </div>
+                </div>
+            `;
+        }
+
+        const isBlackHole = audioSource.type === 'blackhole';
+        const statusColor = isBlackHole ? '#2ed573' : '#ffa502';
+        const statusIcon = isBlackHole ? '✅' : '⚠️';
+        const backgroundColorCompatibility = isBlackHole ? 'Compatible' : 'Limited';
+
+        return html`
+            <div class="form-group">
+                <label class="form-label">Audio Source Status</label>
+                <div class="form-description" style="padding: 12px; background: rgba(255,255,255,0.05); border-radius: 4px; border-left: 3px solid ${statusColor};">
+                    ${statusIcon} <strong>${audioSource.label}</strong><br>
+                    <span style="font-size: 12px; opacity: 0.8;">
+                        Background Mode: ${audioSource.worksInBackground ? '✓ Yes (Stealth Compatible)' : '✗ No (May stop when unfocused)'}
+                    </span><br>
+                    ${!isBlackHole ? html`
+                        <span style="font-size: 11px; opacity: 0.7; margin-top: 4px; display: block;">
+                            💡 Install BlackHole for reliable background audio capture (see instructions below)
+                        </span>
+                    ` : html`
+                        <span style="font-size: 11px; opacity: 0.7; margin-top: 4px; display: block;">
+                            👍 You're using the recommended setup for stealth mode!
+                        </span>
+                    `}
+                </div>
+            </div>
+        `;
+    }
+
     render() {
         const profiles = this.getProfiles();
         const languages = this.getLanguages();
@@ -925,6 +973,25 @@ export class CustomizeView extends LitElement {
                             </select>
                             <div class="form-description">
                                 Choose which audio sources to capture for the AI.
+                            </div>
+                        </div>
+
+                        ${this.renderAudioSourceStatus()}
+
+                        <div class="form-group">
+                            <label class="form-label">Background Audio Capture (macOS)</label>
+                            <div class="form-description">
+                                <strong>Recommended:</strong> Install BlackHole for reliable background system audio capture.<br><br>
+                                <strong>Why?</strong> SystemAudioDump (default) may stop capturing when the app loses focus (error -3821).<br>
+                                BlackHole works perfectly in stealth/background mode without visibility requirements.<br><br>
+                                <strong>Setup:</strong> See <code>BLACKHOLE_SETUP.md</code> in project root for step-by-step instructions.<br><br>
+                                <strong>Quick Steps:</strong><br>
+                                1. Download BlackHole 2ch from GitHub<br>
+                                2. Create Multi-Output Device in Audio MIDI Setup<br>
+                                3. Check both your Speakers and BlackHole 2ch<br>
+                                4. Set Multi-Output as system default<br>
+                                5. Restart Prism - it will auto-detect BlackHole<br><br>
+                                <em>After installation, check "Audio Source Status" above to verify.</em>
                             </div>
                         </div>
                     </div>
