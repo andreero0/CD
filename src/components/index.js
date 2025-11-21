@@ -20,3 +20,7 @@ export { SessionEndDialog } from './views/SessionEndDialog.js';
 export { ErrorNotification } from './views/ErrorNotification.js';
 export { ViewModeSwitcher } from './views/ViewModeSwitcher.js';
 export { ExportDialog } from './views/ExportDialog.js';
+export { AnalyticsDashboard } from './views/AnalyticsDashboard.js';
+
+// Control components
+export { CoachingControls } from './controls/CoachingControls.js';

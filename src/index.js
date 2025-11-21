@@ -51,6 +51,57 @@ app.on('activate', () => {
 });
 
 function setupGeneralIpcHandlers() {
+    // Coaching Controls IPC handlers
+    ipcMain.handle('set-coaching-paused', async (event, isPaused) => {
+        try {
+            // Forward to gemini module (will be implemented)
+            sendToRenderer('coaching-state-changed', { type: 'pause', value: isPaused });
+            console.log('[Coaching Controls] Coaching paused:', isPaused);
+            return { success: true, isPaused };
+        } catch (error) {
+            console.error('Error setting coaching paused:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('set-coaching-intensity', async (event, intensity) => {
+        try {
+            // Validate intensity value
+            if (typeof intensity !== 'number' || intensity < 0 || intensity > 2) {
+                throw new Error('Invalid intensity value. Must be 0, 1, or 2.');
+            }
+
+            sendToRenderer('coaching-state-changed', { type: 'intensity', value: intensity });
+            console.log('[Coaching Controls] Intensity set to:', intensity);
+            return { success: true, intensity };
+        } catch (error) {
+            console.error('Error setting coaching intensity:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('request-alternative-answer', async (event) => {
+        try {
+            sendToRenderer('coaching-state-changed', { type: 'alternative', value: true });
+            console.log('[Coaching Controls] Alternative answer requested');
+            return { success: true };
+        } catch (error) {
+            console.error('Error requesting alternative answer:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('set-freeform-mode', async (event, isFreeform) => {
+        try {
+            sendToRenderer('coaching-state-changed', { type: 'freeform', value: isFreeform });
+            console.log('[Coaching Controls] Freeform mode:', isFreeform);
+            return { success: true, isFreeform };
+        } catch (error) {
+            console.error('Error setting freeform mode:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
     // Config-related IPC handlers
     ipcMain.handle('set-onboarded', async (event) => {
         try {

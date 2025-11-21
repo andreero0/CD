@@ -1381,6 +1381,20 @@ const prism = {
     getIncognitoMode: () => localStorage.getItem('incognitoMode') === 'true',
     setIncognitoMode: (enabled) => localStorage.setItem('incognitoMode', enabled.toString()),
 
+    // Practice mode functions
+    setPracticeModeEnabled: async (enabled) => {
+        localStorage.setItem('practiceMode', enabled.toString());
+        console.log(`[PracticeMode] ${enabled ? 'Enabled' : 'Disabled'} practice mode`);
+        return { success: true };
+    },
+    getPracticeModeEnabled: () => localStorage.getItem('practiceMode') === 'true',
+    sendPracticeModeQuestion: async (question) => {
+        console.log('[PracticeMode] Sending question to AI:', question);
+        // Send the question as context to the AI
+        const contextMessage = `<practiceMode>true</practiceMode><question>${question}</question>`;
+        return await sendTextMessage(contextMessage);
+    },
+
     // Platform detection
     isLinux: isLinux,
     isMacOS: isMacOS,

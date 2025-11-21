@@ -6,7 +6,6 @@ const { getSystemPrompt } = require('./prompts');
 const { processNewTurn, initializeRAG, retrieveContext } = require('./ragController');
 const { conversationState, STATES } = require('./conversationState');
 const { formatAllDocuments, clearDocumentCache } = require('./documentRetriever');
-const { generateCorrelationId, trackAudioChunk, resolveCorrelationId, clearAll: clearCorrelationData } = require('./audioCorrelation');
 
 // Conversation tracking variables
 let currentSessionId = null;
@@ -17,26 +16,24 @@ let isInitializingSession = false;
 // Speaker label mappings for different profiles
 const speakerLabelMaps = {
     interview: ['Interviewer 1', 'You', 'Interviewer 2', 'Interviewer 3', 'Interviewer 4', 'Interviewer 5'],
-    sales: ['Prospect', 'You', 'Decision Maker', 'Stakeholder', 'Client', 'Executive'],
-    meeting: ['Manager', 'You', 'Colleague', 'Stakeholder', 'Team Lead', 'Director'],
-    presentation: ['Audience Member', 'You', 'Questioner', 'Attendee', 'Executive', 'Participant'],
-    negotiation: ['Counterparty', 'You', 'Mediator', 'Legal', 'Decision Maker', 'Advisor'],
+    sales: ['Prospect', 'You', 'Decision Maker', 'Stakeholder 3', 'Stakeholder 4', 'Stakeholder 5'],
+    meeting: ['Speaker 1', 'You', 'Speaker 2', 'Speaker 3', 'Speaker 4', 'Speaker 5'],
+    presentation: ['Audience Member', 'You', 'Audience 2', 'Audience 3', 'Audience 4', 'Audience 5'],
+    negotiation: ['Counterparty', 'You', 'Mediator', 'Party 3', 'Party 4', 'Party 5'],
     exam: ['Proctor', 'You', 'Student 2', 'Student 3', 'Student 4', 'Student 5'],
 };
 
 // Track the current profile for speaker labeling
 let currentProfile = 'interview';
 
-// CORRELATION-BASED SPEAKER TRACKING SYSTEM
-// Queue to track audio chunks in order for correlation-based speaker attribution
-const audioChunkQueue = [];
-const MAX_QUEUE_SIZE = 50; // Keep last 50 chunks (prevents memory leak)
+// Track last active audio source for speaker attribution
+let lastAudioSource = { type: 'mic', timestamp: Date.now() }; // 'mic' or 'system'
+const SPEAKER_ATTRIBUTION_WINDOW = 1000; // 1 second window
 
-// Event-driven context injection tracking
-let previousSpeaker = null; // Track previous speaker for turn detection
+// Buffer for sending speaker-labeled context to AI
 let speakerContextBuffer = '';
-const CONTEXT_SEND_FALLBACK_TIMEOUT = 3000; // 3s fallback if no speaker change
 let lastContextSentTime = Date.now();
+const CONTEXT_SEND_INTERVAL = 3000; // Send context every 3 seconds
 
 function setCurrentProfile(profile) {
     currentProfile = profile || 'interview';
@@ -60,81 +57,6 @@ function formatSpeakerResults(results, profile = null) {
 
 module.exports.formatSpeakerResults = formatSpeakerResults;
 module.exports.setCurrentProfile = setCurrentProfile;
-
-/**
- * Determines speaker from audio correlation queue
- * Uses FIFO matching: first transcription matches first unresolved audio chunk
- */
-function determineSpeakerFromCorrelation() {
-    // Try to match with oldest untracked chunk in queue
-    if (audioChunkQueue.length > 0) {
-        const oldestChunk = audioChunkQueue.shift(); // Remove and return oldest
-        const speaker = oldestChunk.source === 'system' ? 'Interviewer' : 'You';
-
-        if (process.env.DEBUG_CORRELATION) {
-            console.log(`[Speaker Attribution] Matched transcription to ${oldestChunk.source} audio (queue remaining: ${audioChunkQueue.length})`);
-        }
-
-        return speaker;
-    }
-
-    // Fallback: if queue is empty, default to 'You' (mic)
-    if (process.env.DEBUG_CORRELATION) {
-        console.log('[Speaker Attribution] Queue empty, defaulting to "You"');
-    }
-    return 'You';
-}
-
-/**
- * Sends speaker context on turn boundaries (event-driven)
- * Primary trigger: speaker change
- * Fallback: 3s timeout
- */
-function sendSpeakerContextIfNeeded(currentSpeaker, geminiSessionRef, force = false) {
-    const now = Date.now();
-    const timeSinceLastContext = now - lastContextSentTime;
-
-    // Trigger 1: Speaker turn boundary (speaker changed)
-    const speakerChanged = previousSpeaker !== null && previousSpeaker !== currentSpeaker;
-
-    // Trigger 2: Fallback timeout (3 seconds)
-    const timeoutReached = timeSinceLastContext >= CONTEXT_SEND_FALLBACK_TIMEOUT;
-
-    const shouldSend = force || speakerChanged || timeoutReached;
-
-    if (shouldSend && speakerContextBuffer.trim()) {
-        try {
-            const triggerReason = speakerChanged ? 'speaker_turn' : 'timeout_fallback';
-
-            if (process.env.DEBUG_CONTEXT) {
-                console.log(`[Context Injection] Triggering send (reason: ${triggerReason}, buffer length: ${speakerContextBuffer.length})`);
-            }
-
-            const promise = geminiSessionRef.current?.sendRealtimeInput({
-                text: `<context>\n${speakerContextBuffer.trim()}\n</context>`
-            });
-
-            if (promise && typeof promise.catch === 'function') {
-                promise.catch(err => {
-                    console.error('[Context Injection] Failed to send speaker context:', err);
-                });
-            } else {
-                console.warn('[Context Injection] sendRealtimeInput did not return a Promise');
-            }
-
-            // Reset buffer and timer
-            speakerContextBuffer = '';
-            lastContextSentTime = now;
-
-            console.log(`[Context Injection] Sent to AI (trigger: ${triggerReason})`);
-        } catch (err) {
-            console.error('[Context Injection] Error calling sendRealtimeInput:', err);
-        }
-    }
-
-    // Update previous speaker for next comparison
-    previousSpeaker = currentSpeaker;
-}
 
 // Audio capture variables
 let systemAudioProc = null;
@@ -163,9 +85,7 @@ async function initializeNewSession() {
     conversationHistory = [];
     speakerContextBuffer = '';
     lastContextSentTime = Date.now();
-    clearCorrelationData();
-    audioChunkQueue.length = 0;
-    previousSpeaker = null;
+    lastAudioSource = { type: 'mic', timestamp: Date.now() };
     console.log('New conversation session started:', currentSessionId);
 
     // Reset conversation state machine for new session
@@ -491,9 +411,20 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                         }
 
                         if (newTranscript && newTranscript.trim()) {
-                            // CORRELATION-BASED SPEAKER ATTRIBUTION
-                            // Match transcription to audio chunk using FIFO queue
-                            const speaker = determineSpeakerFromCorrelation();
+                            // Determine speaker based on last active audio source
+                            let speaker = 'You'; // Default to 'You' for mic
+                            const timeSinceLastAudio = Date.now() - lastAudioSource.timestamp;
+
+                            // Only use audio source tracking if it's recent (within 1 second)
+                            if (timeSinceLastAudio < SPEAKER_ATTRIBUTION_WINDOW) {
+                                if (lastAudioSource.type === 'system') {
+                                    // System audio (BlackHole) is the interviewer
+                                    speaker = 'Interviewer';
+                                } else {
+                                    // Mic audio is the interviewee (you)
+                                    speaker = 'You';
+                                }
+                            }
 
                             // COACHING FEEDBACK LOOP: When user speaks, compare against suggestion
                             if (speaker === 'You') {
@@ -509,17 +440,9 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             currentTranscription += formattedChunk;
                             speakerContextBuffer += formattedChunk;
 
-                            // EVENT-DRIVEN CONTEXT INJECTION
-                            // Send context on speaker turn boundaries (primary) or 3s timeout (fallback)
+                            // Periodically send speaker-labeled context to AI so it knows who is speaking
                             const now = Date.now();
-                            const timeSinceLastContext = now - lastContextSentTime;
-                            const speakerChanged = previousSpeaker !== null && previousSpeaker !== speaker;
-                            const timeoutReached = timeSinceLastContext >= CONTEXT_SEND_FALLBACK_TIMEOUT;
-                            const shouldSendContext = speakerChanged || timeoutReached;
-
-                            if (shouldSendContext && speakerContextBuffer.trim()) {
-                                const triggerReason = speakerChanged ? 'speaker_turn' : 'timeout_fallback';
-                                console.log(`[Context Injection] Sending (trigger: ${triggerReason})`);
+                            if (now - lastContextSentTime >= CONTEXT_SEND_INTERVAL && speakerContextBuffer.trim()) {
                                 // Build context message with suggestion tracking
                                 let contextMessage = `<context>\n${speakerContextBuffer.trim()}\n</context>`;
 
@@ -590,11 +513,8 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                                 // Reset buffer and timer
                                 speakerContextBuffer = '';
                                 lastContextSentTime = now;
-                                console.log('[Context Injection] Sent to AI with suggestion tracking (trigger: ' + triggerReason + ')');
+                                console.log('[Speaker Context] Sent to AI with suggestion tracking');
                             }
-
-                            // Update previous speaker for next turn detection (must be outside the if block)
-                            previousSpeaker = speaker;
 
                             // Send transcript update to renderer with speaker information
                             sendToRenderer('transcript-update', { text: newTranscript, speaker: speaker });
@@ -956,18 +876,6 @@ async function sendAudioToGemini(base64Data, geminiSessionRef) {
     if (!geminiSessionRef.current) return;
 
     try {
-        // Generate correlation ID and track this audio chunk
-        const correlationId = generateCorrelationId();
-        trackAudioChunk(correlationId, 'system', Date.now());
-
-        // Add to FIFO queue for speaker matching
-        audioChunkQueue.push({ source: 'system', timestamp: Date.now(), correlationId });
-
-        // Limit queue size to prevent memory leaks
-        if (audioChunkQueue.length > MAX_QUEUE_SIZE) {
-            audioChunkQueue.shift(); // Remove oldest
-        }
-
         process.stdout.write('.');
         await geminiSessionRef.current.sendRealtimeInput({
             audio: {
@@ -991,14 +899,7 @@ function clearSensitiveData() {
     currentTranscription = '';
     messageBuffer = '';
     speakerContextBuffer = '';
-
-    // Clear correlation data and queue
-    clearCorrelationData();
-    audioChunkQueue.length = 0;
-    previousSpeaker = null;
-
-    // Clear document cache
-    clearDocumentCache();
+    lastAudioSource = { type: 'mic', timestamp: Date.now() };
 }
 
 function setupGeminiIpcHandlers(geminiSessionRef) {
@@ -1034,19 +935,9 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
         }
 
         try {
-            // Generate correlation ID and track this audio chunk
-            const correlationId = generateCorrelationId();
-            trackAudioChunk(correlationId, 'system', Date.now());
-
-            // Add to FIFO queue for speaker matching
-            audioChunkQueue.push({ source: 'system', timestamp: Date.now(), correlationId });
-
-            // Limit queue size to prevent memory leaks
-            if (audioChunkQueue.length > MAX_QUEUE_SIZE) {
-                audioChunkQueue.shift(); // Remove oldest
-            }
-
             process.stdout.write('.');
+            // Track that system audio (interviewer) is currently speaking
+            lastAudioSource = { type: 'system', timestamp: Date.now() };
             await geminiSessionRef.current.sendRealtimeInput({
                 audio: { data: data, mimeType: mimeType },
             });
@@ -1078,19 +969,9 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
         }
 
         try {
-            // Generate correlation ID and track this audio chunk
-            const correlationId = generateCorrelationId();
-            trackAudioChunk(correlationId, 'mic', Date.now());
-
-            // Add to FIFO queue for speaker matching
-            audioChunkQueue.push({ source: 'mic', timestamp: Date.now(), correlationId });
-
-            // Limit queue size to prevent memory leaks
-            if (audioChunkQueue.length > MAX_QUEUE_SIZE) {
-                audioChunkQueue.shift(); // Remove oldest
-            }
-
             process.stdout.write(',');
+            // Track that microphone (you/interviewee) is currently speaking
+            lastAudioSource = { type: 'mic', timestamp: Date.now() };
             await geminiSessionRef.current.sendRealtimeInput({
                 audio: { data: data, mimeType: mimeType },
             });

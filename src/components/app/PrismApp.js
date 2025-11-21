@@ -12,6 +12,7 @@ import { ReconnectionOverlay } from '../views/ReconnectionOverlay.js';
 import { SessionEndDialog } from '../views/SessionEndDialog.js';
 import { ErrorNotification } from '../views/ErrorNotification.js';
 import { DocumentsView } from '../views/DocumentsView.js';
+import { PracticeView } from '../views/PracticeView.js';
 
 export class PrismApp extends LitElement {
     static styles = css`
@@ -444,8 +445,13 @@ export class PrismApp extends LitElement {
         this.requestUpdate();
     }
 
+    handlePracticeClick() {
+        this.currentView = 'practice';
+        this.requestUpdate();
+    }
+
     async handleClose() {
-        if (this.currentView === 'customize' || this.currentView === 'help' || this.currentView === 'history' || this.currentView === 'documents') {
+        if (this.currentView === 'customize' || this.currentView === 'help' || this.currentView === 'history' || this.currentView === 'documents' || this.currentView === 'practice') {
             this.currentView = 'main';
         } else if (this.currentView === 'assistant') {
             // Show session end dialog with summary
@@ -729,6 +735,13 @@ export class PrismApp extends LitElement {
             case 'documents':
                 return html` <documents-view></documents-view> `;
 
+            case 'practice':
+                return html`
+                    <practice-view
+                        .selectedProfile=${this.selectedProfile}
+                    ></practice-view>
+                `;
+
             default:
                 return html`<div>Unknown view: ${this.currentView}</div>`;
         }
@@ -754,6 +767,7 @@ export class PrismApp extends LitElement {
                         .onHelpClick=${() => this.handleHelpClick()}
                         .onHistoryClick=${() => this.handleHistoryClick()}
                         .onDocumentsClick=${() => this.handleDocumentsClick()}
+                        .onPracticeClick=${() => this.handlePracticeClick()}
                         .onAdvancedClick=${() => this.handleAdvancedClick()}
                         .onCloseClick=${() => this.handleClose()}
                         .onBackClick=${() => this.handleBackClick()}

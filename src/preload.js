@@ -25,7 +25,12 @@ const validChannels = {
         'set-onboarded',
         'set-stealth-level',
         'set-layout',
-        'get-config'
+        'get-config',
+        'set-coaching-paused',
+        'set-coaching-intensity',
+        'request-alternative-answer',
+        'set-freeform-mode',
+        'save-file'
     ],
     send: [
         'update-keybinds',
@@ -47,7 +52,9 @@ const validChannels = {
         'screenshot-captured',
         'reconnection-status',
         'reconnection-success',
-        'reconnection-failed'
+        'reconnection-failed',
+        'analytics-update',
+        'coaching-state-changed'
     ]
 };
 
