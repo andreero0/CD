@@ -99,14 +99,10 @@ class SessionStats {
     }
 
     getUnsavedCount() {
-        // Check which responses haven't been saved to localStorage
-        try {
-            const savedResponses = JSON.parse(localStorage.getItem('savedResponses') || '[]');
-            const savedTexts = new Set(savedResponses.map(r => r.response));
-            return this.responses.filter(r => !savedTexts.has(r.text)).length;
-        } catch (e) {
-            return this.responses.length;
-        }
+        // Since we don't track individual saved responses during the session,
+        // all responses are considered unsaved until the session is saved to history
+        // This is displayed as a warning in the SessionEndDialog
+        return this.responses.length;
     }
 
     getSummary() {

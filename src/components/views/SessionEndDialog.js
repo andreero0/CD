@@ -194,7 +194,6 @@ export class SessionEndDialog extends LitElement {
         responses: { type: Array },
         sessionInfo: { type: Object },
         profile: { type: String },
-        onExportPDF: { type: Function },
         onSaveToHistory: { type: Function },
         onEndWithoutSaving: { type: Function },
         onCancel: { type: Function },
@@ -211,7 +210,6 @@ export class SessionEndDialog extends LitElement {
         this.responses = [];
         this.sessionInfo = {};
         this.profile = 'interview';
-        this.onExportPDF = () => {};
         this.onSaveToHistory = () => {};
         this.onEndWithoutSaving = () => {};
         this.onCancel = () => {};

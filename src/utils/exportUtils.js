@@ -309,20 +309,79 @@ export async function exportAsPDF({ responses, sessionInfo = {}, profile = 'inte
 
 /**
  * Download exported data as a file
- * @param {String} content - File content
+ * @param {String|ArrayBuffer|Uint8Array} content - File content
  * @param {String} filename - Filename with extension
  * @param {String} mimeType - MIME type
+ * @param {Boolean} isBinary - Whether content is binary data
+ * @returns {Promise<Object>} - Result object with success status
  */
-export function downloadFile(content, filename, mimeType = 'text/plain') {
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+export async function downloadFile(content, filename, mimeType = 'text/plain', isBinary = false) {
+    // Use Electron IPC for file saving when available
+    if (window.electron && window.electron.invoke) {
+        try {
+            // Determine file filter based on file extension
+            const ext = filename.split('.').pop().toLowerCase();
+            const filters = [];
+
+            if (ext === 'pdf') {
+                filters.push({ name: 'PDF Document', extensions: ['pdf'] });
+            } else if (ext === 'md') {
+                filters.push({ name: 'Markdown', extensions: ['md'] });
+            } else if (ext === 'txt') {
+                filters.push({ name: 'Text File', extensions: ['txt'] });
+            }
+            filters.push({ name: 'All Files', extensions: ['*'] });
+
+            // Convert binary data to base64 for IPC transfer
+            let contentToSend = content;
+            if (isBinary && content instanceof Uint8Array) {
+                // Convert Uint8Array to base64 string
+                const binary = String.fromCharCode.apply(null, content);
+                contentToSend = btoa(binary);
+            } else if (isBinary && content instanceof ArrayBuffer) {
+                // Convert ArrayBuffer to base64 string
+                const uint8 = new Uint8Array(content);
+                const binary = String.fromCharCode.apply(null, uint8);
+                contentToSend = btoa(binary);
+            }
+
+            const result = await window.electron.invoke('save-file', {
+                content: contentToSend,
+                filename: filename,
+                filters: filters,
+                isBinary: isBinary
+            });
+
+            return result;
+        } catch (error) {
+            console.error('Error using Electron file save:', error);
+            // Fall through to browser download method
+        }
+    }
+
+    // Fallback: Browser download method
+    try {
+        let blob;
+        if (isBinary && (content instanceof Uint8Array || content instanceof ArrayBuffer)) {
+            blob = new Blob([content], { type: mimeType });
+        } else {
+            blob = new Blob([content], { type: mimeType });
+        }
+
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        return { success: true, message: 'File downloaded' };
+    } catch (error) {
+        console.error('Error downloading file:', error);
+        return { success: false, error: error.message };
+    }
 }
 
 /**

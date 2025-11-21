@@ -60,6 +60,8 @@ window.audioTracker = {
 window.tokenTracker = {
     tokens: [], // Array of {timestamp, count, type} objects
     audioStartTime: null,
+    totalSessionTokens: 0, // Track total tokens for entire session
+    audioTrackingInterval: null, // Store interval ID for cleanup
 
     // Add tokens to the tracker
     addTokens(count, type = 'image') {
@@ -69,6 +71,14 @@ window.tokenTracker = {
             count: count,
             type: type,
         });
+
+        // Add to session total
+        this.totalSessionTokens += count;
+
+        // Also update sessionStats if available
+        if (window.sessionStats) {
+            window.sessionStats.addTokens(count);
+        }
 
         // Clean old tokens (older than 1 minute)
         this.cleanOldTokens();
@@ -159,17 +169,32 @@ window.tokenTracker = {
         return currentTokens >= throttleThreshold;
     },
 
+    // Start audio tracking interval
+    startAudioTracking() {
+        if (this.audioTrackingInterval) {
+            return; // Already running
+        }
+        this.audioTrackingInterval = setInterval(() => {
+            this.trackAudioTokens();
+        }, 2000);
+    },
+
+    // Stop audio tracking interval
+    stopAudioTracking() {
+        if (this.audioTrackingInterval) {
+            clearInterval(this.audioTrackingInterval);
+            this.audioTrackingInterval = null;
+        }
+    },
+
     // Reset the tracker
     reset() {
         this.tokens = [];
         this.audioStartTime = null;
+        this.totalSessionTokens = 0;
+        this.stopAudioTracking();
     },
 };
-
-// Track audio tokens every few seconds
-setInterval(() => {
-    window.tokenTracker.trackAudioTokens();
-}, 2000);
 
 function convertFloat32ToInt16(float32Array) {
     const int16Array = new Int16Array(float32Array.length);
@@ -237,7 +262,9 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
 
     // Reset token tracker when starting new capture session
     window.tokenTracker.reset();
-    console.log('Token tracker reset for new capture session');
+    // Start audio token tracking
+    window.tokenTracker.startAudioTracking();
+    console.log('Token tracker reset and audio tracking started for new capture session');
 
     const audioMode = localStorage.getItem('audioMode') || 'speaker_only';
     console.log('Audio mode:', audioMode);
@@ -915,6 +942,11 @@ function stopCapture() {
         ipcRenderer.invoke('stop-macos-audio').catch(err => {
             console.error('Error stopping macOS audio:', err);
         });
+    }
+
+    // Stop audio token tracking
+    if (window.tokenTracker) {
+        window.tokenTracker.stopAudioTracking();
     }
 
     // Clean up hidden elements

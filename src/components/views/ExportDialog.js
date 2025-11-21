@@ -436,13 +436,26 @@ export class ExportDialog extends LitElement {
             if (this.selectedFormat === 'pdf') {
                 const doc = await exportAsPDF(exportData);
                 const filename = generateFilename('pdf', this.profile);
-                doc.save(filename);
-                this.showStatus(`PDF exported: ${filename}`, 'success');
+
+                // Get PDF as array buffer for proper file saving
+                const pdfData = doc.output('arraybuffer');
+                const result = await downloadFile(pdfData, filename, 'application/pdf', true);
+
+                if (result.success) {
+                    this.showStatus(`PDF exported: ${filename}`, 'success');
+                } else if (!result.canceled) {
+                    this.showStatus('Failed to export PDF', 'error');
+                }
             } else if (this.selectedFormat === 'markdown') {
                 const markdown = exportAsMarkdown(exportData);
                 const filename = generateFilename('md', this.profile);
-                downloadFile(markdown, filename, 'text/markdown');
-                this.showStatus(`Markdown exported: ${filename}`, 'success');
+                const result = await downloadFile(markdown, filename, 'text/markdown');
+
+                if (result.success) {
+                    this.showStatus(`Markdown exported: ${filename}`, 'success');
+                } else if (!result.canceled) {
+                    this.showStatus('Failed to export Markdown', 'error');
+                }
             }
 
             // Auto-close after successful export

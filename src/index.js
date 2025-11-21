@@ -2,7 +2,9 @@ if (require('electron-squirrel-startup')) {
     process.exit(0);
 }
 
-const { app, BrowserWindow, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, dialog } = require('electron');
+const fs = require('fs').promises;
+const path = require('path');
 const { createWindow, updateGlobalShortcuts } = require('./utils/window');
 const { setupGeminiIpcHandlers, stopMacOSAudioCapture, sendToRenderer } = require('./utils/gemini');
 const { initializeRandomProcessNames } = require('./utils/processRandomizer');
@@ -178,6 +180,49 @@ function setupGeneralIpcHandlers() {
         } catch (error) {
             console.error('Error getting random display name:', error);
             return 'System Monitor';
+        }
+    });
+
+    // File save dialog and save handler for exports
+    ipcMain.handle('save-file', async (event, { content, filename, filters, isBinary }) => {
+        try {
+            // Show save dialog
+            const result = await dialog.showSaveDialog(mainWindow, {
+                defaultPath: filename,
+                filters: filters || [
+                    { name: 'All Files', extensions: ['*'] }
+                ]
+            });
+
+            if (result.canceled) {
+                return { success: false, canceled: true };
+            }
+
+            // Write file to selected path
+            // For binary data (like PDFs), use Buffer
+            if (isBinary) {
+                // Convert base64 or array buffer to Buffer
+                const buffer = typeof content === 'string'
+                    ? Buffer.from(content, 'base64')
+                    : Buffer.from(content);
+                await fs.writeFile(result.filePath, buffer);
+            } else {
+                // For text files, write as UTF-8 string
+                await fs.writeFile(result.filePath, content, 'utf8');
+            }
+
+            return {
+                success: true,
+                filePath: result.filePath,
+                message: 'File saved successfully'
+            };
+        } catch (error) {
+            console.error('Error saving file:', error);
+            return {
+                success: false,
+                error: error.message,
+                message: 'Failed to save file'
+            };
         }
     });
 }

@@ -215,11 +215,6 @@ export class PrismApp extends LitElement {
                 this.requestUpdate();
             });
         }
-
-        // Initialize session stats when starting a session
-        if (window.sessionStats) {
-            window.sessionStats.start();
-        }
     }
 
     disconnectedCallback() {
@@ -269,16 +264,6 @@ export class PrismApp extends LitElement {
         this.sessionSummary = window.sessionStats.getSummary();
         this.showSessionEndDialog = true;
         this.requestUpdate();
-    }
-
-    async handleExportPDF() {
-        // TODO: Implement PDF export functionality
-        this.addErrorNotification({
-            type: 'info',
-            title: 'Export PDF',
-            message: 'PDF export feature coming soon!',
-        });
-        this.showSessionEndDialog = false;
     }
 
     async handleSaveToHistory() {
@@ -512,6 +497,11 @@ export class PrismApp extends LitElement {
             );
             this.currentResponseIndex = 0;
 
+            // Start session statistics tracking
+            if (window.sessionStats) {
+                window.sessionStats.start();
+            }
+
             // Go directly to assistant view
             this.currentView = 'assistant';
             this.setStatus('Demo Mode - Showing sample responses');
@@ -535,6 +525,12 @@ export class PrismApp extends LitElement {
         this.responses = [];
         this.currentResponseIndex = -1;
         this.startTime = Date.now();
+
+        // Start session statistics tracking
+        if (window.sessionStats) {
+            window.sessionStats.start();
+        }
+
         this.currentView = 'assistant';
     }
 
@@ -802,7 +798,6 @@ export class PrismApp extends LitElement {
                             topics: this.sessionSummary.topics
                         }}
                         .profile=${this.selectedProfile}
-                        .onExportPDF=${() => this.handleExportPDF()}
                         .onSaveToHistory=${() => this.handleSaveToHistory()}
                         .onEndWithoutSaving=${() => this.handleEndWithoutSaving()}
                         .onCancel=${() => this.handleCancelSessionEnd()}
