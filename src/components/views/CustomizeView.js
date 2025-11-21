@@ -465,7 +465,7 @@ export class CustomizeView extends LitElement {
             {
                 value: 'interview',
                 name: 'Job Interview',
-                description: 'Get help with answering interview questions',
+                description: 'Behavioral interviews & case interviews (consulting, market sizing, frameworks)',
             },
             {
                 value: 'sales',
