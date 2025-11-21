@@ -37,7 +37,17 @@ This allows system audio to play through BOTH your speakers AND BlackHole simult
    - ✅ Check **"BlackHole 2ch"**
    - ⚠️ **IMPORTANT**: Your speakers MUST be listed FIRST (above BlackHole) for proper playback
 
-5. **Optional but recommended**: Right-click the Multi-Output Device and select **"Use This Device For Sound Output"**
+5. **Configure Drift Correction** (IMPORTANT for sync):
+   - **Your speakers:** Drift Correction = **☐ UNCHECKED** (master clock)
+   - **BlackHole 2ch:** Drift Correction = **☑ CHECKED** (syncs to master)
+
+   **What is Drift Correction?**
+   - Synchronizes audio clocks between devices
+   - Physical speakers have hardware clock (master)
+   - BlackHole is virtual and needs to sync to speakers
+   - ✅ Enable it on BlackHole to prevent audio drift/clicks
+
+6. **Optional but recommended**: Right-click the Multi-Output Device and select **"Use This Device For Sound Output"**
    - This sets it as your system default output
    - Alternatively, you can manually select it in System Settings → Sound
 
@@ -113,6 +123,27 @@ Check Terminal logs when starting session:
 1. Restart Prism completely
 2. Check that Multi-Output Device is set as system output
 3. Verify microphone permission is granted to Prism
+
+### "Audio has clicks, pops, or sync issues"
+
+This is usually a drift correction problem:
+
+**Check Drift Correction Settings:**
+1. Open Audio MIDI Setup
+2. Select your Multi-Output Device
+3. Verify configuration:
+   - **Your speakers:** Drift Correction = ☐ UNCHECKED
+   - **BlackHole 2ch:** Drift Correction = ☑ CHECKED
+
+**If both have drift correction enabled:**
+- Uncheck drift correction on your physical speakers
+- Keep it checked ONLY on BlackHole 2ch
+- Restart audio playback
+
+**If neither has drift correction:**
+- Enable drift correction on BlackHole 2ch
+- Leave speakers unchecked
+- This ensures proper clock synchronization
 
 ## Uninstalling BlackHole
 
