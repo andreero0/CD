@@ -208,9 +208,9 @@ export class TranscriptPanel extends LitElement {
         }
     }
 
-    parseAndAddTranscript(formattedText) {
+    parseAndAddTranscript(formattedText, speaker = null) {
         // Parse multi-line transcript with speaker labels
-        console.log('[TranscriptPanel] parseAndAddTranscript called with:', formattedText);
+        console.log('[TranscriptPanel] parseAndAddTranscript called with:', formattedText, 'speaker:', speaker);
 
         // Check if this text has speaker labels (format: [Speaker]: text)
         const hasSpeakerLabel = /\[([^\]]+)\]:\s*(.+)/.test(formattedText);
@@ -225,13 +225,18 @@ export class TranscriptPanel extends LitElement {
                 }
             });
         } else {
-            // Raw text without speaker labels - accumulate it
+            // Raw text without speaker labels - accumulate it with provided speaker
             console.log('[TranscriptPanel] Raw text chunk (no speaker label), accumulating...');
-            this.handleRawTextChunk(formattedText);
+            this.handleRawTextChunk(formattedText, speaker);
         }
     }
 
-    handleRawTextChunk(textChunk) {
+    handleRawTextChunk(textChunk, speaker = null) {
+        // Update the speaker if provided (from audio source detection)
+        if (speaker) {
+            this.lastSpeaker = speaker;
+        }
+
         // Accumulate raw text chunks (no speaker labels)
         this.accumulatedText += textChunk;
 
@@ -243,7 +248,7 @@ export class TranscriptPanel extends LitElement {
             sentences.forEach(sentence => {
                 const trimmed = sentence.trim();
                 if (trimmed) {
-                    // Add as a transcript entry from "You" (the user speaking)
+                    // Add as a transcript entry with the determined speaker
                     this.transcriptEntries = [
                         ...this.transcriptEntries,
                         {
@@ -252,7 +257,7 @@ export class TranscriptPanel extends LitElement {
                             timestamp: new Date().toISOString(),
                         },
                     ];
-                    console.log('[TranscriptPanel] Added raw text entry:', trimmed);
+                    console.log('[TranscriptPanel] Added raw text entry:', trimmed, 'from speaker:', this.lastSpeaker);
                 }
             });
 

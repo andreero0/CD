@@ -767,13 +767,20 @@ export class AssistantView extends LitElement {
             //     }
             // };
 
-            this.handleTranscriptUpdate = (transcript) => {
-                console.log('[AssistantView] Transcript update received:', transcript);
+            this.handleTranscriptUpdate = (transcriptData) => {
+                console.log('[AssistantView] Transcript update received:', transcriptData);
                 const transcriptPanel = this.shadowRoot.querySelector('transcript-panel');
                 console.log('[AssistantView] transcript-panel element:', transcriptPanel);
                 if (transcriptPanel) {
                     console.log('[AssistantView] Calling parseAndAddTranscript');
-                    transcriptPanel.parseAndAddTranscript(transcript);
+                    // Handle both old string format and new object format
+                    if (typeof transcriptData === 'string') {
+                        // Legacy format: just text, no speaker info
+                        transcriptPanel.parseAndAddTranscript(transcriptData);
+                    } else if (transcriptData && typeof transcriptData === 'object') {
+                        // New format: {text, speaker}
+                        transcriptPanel.parseAndAddTranscript(transcriptData.text, transcriptData.speaker);
+                    }
                 } else {
                     console.error('[AssistantView] transcript-panel element not found!');
                 }

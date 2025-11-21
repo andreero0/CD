@@ -24,6 +24,10 @@ const speakerLabelMaps = {
 // Track the current profile for speaker labeling
 let currentProfile = 'interview';
 
+// Track last active audio source for speaker attribution
+let lastAudioSource = { type: 'mic', timestamp: Date.now() }; // 'mic' or 'system'
+const SPEAKER_ATTRIBUTION_WINDOW = 1000; // 1 second window
+
 function setCurrentProfile(profile) {
     currentProfile = profile || 'interview';
 }
@@ -373,8 +377,23 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                         if (newTranscript && newTranscript.trim()) {
                             currentTranscription += newTranscript + ' ';
 
-                            // Send transcript update to renderer for UI display
-                            sendToRenderer('transcript-update', newTranscript);
+                            // Determine speaker based on last active audio source
+                            let speaker = 'You'; // Default to 'You' for mic
+                            const timeSinceLastAudio = Date.now() - lastAudioSource.timestamp;
+
+                            // Only use audio source tracking if it's recent (within 1 second)
+                            if (timeSinceLastAudio < SPEAKER_ATTRIBUTION_WINDOW) {
+                                if (lastAudioSource.type === 'system') {
+                                    // System audio (BlackHole) is the interviewer
+                                    speaker = 'Interviewer';
+                                } else {
+                                    // Mic audio is the interviewee (you)
+                                    speaker = 'You';
+                                }
+                            }
+
+                            // Send transcript update to renderer with speaker information
+                            sendToRenderer('transcript-update', { text: newTranscript, speaker: speaker });
                         }
                     }
 
@@ -786,6 +805,8 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
 
         try {
             process.stdout.write('.');
+            // Track that system audio (interviewer) is currently speaking
+            lastAudioSource = { type: 'system', timestamp: Date.now() };
             await geminiSessionRef.current.sendRealtimeInput({
                 audio: { data: data, mimeType: mimeType },
             });
@@ -818,6 +839,8 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
 
         try {
             process.stdout.write(',');
+            // Track that microphone (you/interviewee) is currently speaking
+            lastAudioSource = { type: 'mic', timestamp: Date.now() };
             await geminiSessionRef.current.sendRealtimeInput({
                 audio: { data: data, mimeType: mimeType },
             });
