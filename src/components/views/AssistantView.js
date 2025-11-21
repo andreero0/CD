@@ -758,13 +758,14 @@ export class AssistantView extends LitElement {
                 this.scrollResponseDown();
             };
 
-            this.handleScreenshotCaptured = (imageData) => {
-                console.log('Screenshot captured');
-                const screenshotFeedback = this.shadowRoot.querySelector('screenshot-feedback');
-                if (screenshotFeedback) {
-                    screenshotFeedback.captureScreenshot(imageData);
-                }
-            };
+            // REMOVED: Screenshot captured handler (event never sent from main process)
+            // this.handleScreenshotCaptured = (imageData) => {
+            //     console.log('Screenshot captured');
+            //     const screenshotFeedback = this.shadowRoot.querySelector('screenshot-feedback');
+            //     if (screenshotFeedback) {
+            //         screenshotFeedback.captureScreenshot(imageData);
+            //     }
+            // };
 
             this.handleTranscriptUpdate = (transcript) => {
                 console.log('[AssistantView] Transcript update received:', transcript);
@@ -782,7 +783,8 @@ export class AssistantView extends LitElement {
             ipcRenderer.on('navigate-next-response', this.handleNextResponse);
             ipcRenderer.on('scroll-response-up', this.handleScrollUp);
             ipcRenderer.on('scroll-response-down', this.handleScrollDown);
-            ipcRenderer.on('screenshot-captured', this.handleScreenshotCaptured);
+            // REMOVED: Screenshot captured listener (event never sent from main process)
+            // ipcRenderer.on('screenshot-captured', this.handleScreenshotCaptured);
             ipcRenderer.on('transcript-update', this.handleTranscriptUpdate);
         }
     }
@@ -797,22 +799,23 @@ export class AssistantView extends LitElement {
         if (window.electron) {
             const ipcRenderer = window.electron;
             if (this.handlePreviousResponse) {
-                ipcRenderer.removeListener('navigate-previous-response', this.handlePreviousResponse);
+                ipcRenderer.off('navigate-previous-response', this.handlePreviousResponse);
             }
             if (this.handleNextResponse) {
-                ipcRenderer.removeListener('navigate-next-response', this.handleNextResponse);
+                ipcRenderer.off('navigate-next-response', this.handleNextResponse);
             }
             if (this.handleScrollUp) {
-                ipcRenderer.removeListener('scroll-response-up', this.handleScrollUp);
+                ipcRenderer.off('scroll-response-up', this.handleScrollUp);
             }
             if (this.handleScrollDown) {
-                ipcRenderer.removeListener('scroll-response-down', this.handleScrollDown);
+                ipcRenderer.off('scroll-response-down', this.handleScrollDown);
             }
-            if (this.handleScreenshotCaptured) {
-                ipcRenderer.removeListener('screenshot-captured', this.handleScreenshotCaptured);
-            }
+            // REMOVED: Screenshot captured cleanup (handler commented out)
+            // if (this.handleScreenshotCaptured) {
+            //     ipcRenderer.off('screenshot-captured', this.handleScreenshotCaptured);
+            // }
             if (this.handleTranscriptUpdate) {
-                ipcRenderer.removeListener('transcript-update', this.handleTranscriptUpdate);
+                ipcRenderer.off('transcript-update', this.handleTranscriptUpdate);
             }
         }
     }

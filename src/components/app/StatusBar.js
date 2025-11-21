@@ -304,7 +304,7 @@ export class StatusBar extends LitElement {
 
         const ipcRenderer = window.electron;
         if (this._statusUpdateHandler) {
-            ipcRenderer.removeListener('update-status', this._statusUpdateHandler);
+            ipcRenderer.off('update-status', this._statusUpdateHandler);
         }
     }
 

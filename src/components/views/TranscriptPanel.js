@@ -170,6 +170,8 @@ export class TranscriptPanel extends LitElement {
         super();
         this.transcriptEntries = [];
         this.isCollapsed = false;
+        this.accumulatedText = ''; // Buffer for non-diarized text chunks
+        this.lastSpeaker = 'You'; // Default speaker for non-diarized text
     }
 
     addTranscriptEntry(text) {
@@ -209,17 +211,65 @@ export class TranscriptPanel extends LitElement {
     parseAndAddTranscript(formattedText) {
         // Parse multi-line transcript with speaker labels
         console.log('[TranscriptPanel] parseAndAddTranscript called with:', formattedText);
-        const lines = formattedText.split('\n');
-        console.log('[TranscriptPanel] Split into', lines.length, 'lines:', lines);
-        lines.forEach(line => {
-            if (line.trim()) {
-                this.addTranscriptEntry(line);
-            }
-        });
+
+        // Check if this text has speaker labels (format: [Speaker]: text)
+        const hasSpeakerLabel = /\[([^\]]+)\]:\s*(.+)/.test(formattedText);
+
+        if (hasSpeakerLabel) {
+            // Text has speaker labels - parse normally
+            const lines = formattedText.split('\n');
+            console.log('[TranscriptPanel] Split into', lines.length, 'lines with speaker labels:', lines);
+            lines.forEach(line => {
+                if (line.trim()) {
+                    this.addTranscriptEntry(line);
+                }
+            });
+        } else {
+            // Raw text without speaker labels - accumulate it
+            console.log('[TranscriptPanel] Raw text chunk (no speaker label), accumulating...');
+            this.handleRawTextChunk(formattedText);
+        }
+    }
+
+    handleRawTextChunk(textChunk) {
+        // Accumulate raw text chunks (no speaker labels)
+        this.accumulatedText += textChunk;
+
+        // Check if we have a complete sentence (ends with . ! ? or newline)
+        const sentences = this.accumulatedText.match(/[^.!?\n]+[.!?\n]+/g);
+
+        if (sentences && sentences.length > 0) {
+            // We have complete sentences, add them to the transcript
+            sentences.forEach(sentence => {
+                const trimmed = sentence.trim();
+                if (trimmed) {
+                    // Add as a transcript entry from "You" (the user speaking)
+                    this.transcriptEntries = [
+                        ...this.transcriptEntries,
+                        {
+                            speaker: this.lastSpeaker,
+                            text: trimmed,
+                            timestamp: new Date().toISOString(),
+                        },
+                    ];
+                    console.log('[TranscriptPanel] Added raw text entry:', trimmed);
+                }
+            });
+
+            // Remove the complete sentences from accumulator
+            this.accumulatedText = this.accumulatedText.substring(
+                sentences.join('').length
+            );
+
+            // Update UI
+            this.requestUpdate();
+            setTimeout(() => this.scrollToBottom(), 100);
+        }
     }
 
     clearTranscript() {
         this.transcriptEntries = [];
+        this.accumulatedText = '';
     }
 
     toggleCollapse() {

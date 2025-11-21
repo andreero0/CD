@@ -29,7 +29,8 @@ const validChannels = {
     ],
     send: [
         'update-keybinds',
-        'view-changed'
+        'view-changed',
+        'screenshot-captured'
     ],
     on: [
         'update-status',
@@ -77,6 +78,15 @@ const api = {
             return () => ipcRenderer.removeListener(channel, subscription);
         }
         throw new Error(`Invalid IPC channel: ${channel}`);
+    },
+
+    // IPC off (remove specific listener)
+    off: (channel, callback) => {
+        if (validChannels.on.includes(channel)) {
+            ipcRenderer.off(channel, callback);
+        } else {
+            throw new Error(`Invalid IPC channel: ${channel}`);
+        }
     },
 
     // Remove all listeners for a channel

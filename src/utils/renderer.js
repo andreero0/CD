@@ -925,8 +925,8 @@ async function captureScreenshot(imageQuality = 'medium', isManual = false) {
                         // Update screenshot tracker for status bar
                         window.screenshotTracker.lastScreenshotTime = Date.now();
 
-                        // Send screenshot captured event for visual feedback
-                        ipcRenderer.send('screenshot-captured', base64data);
+                        // REMOVED: Screenshot captured event (no main process handler exists)
+                        // ipcRenderer.send('screenshot-captured', base64data);
                     } else {
                         console.error('Failed to send image:', result.error);
                     }
