@@ -389,6 +389,24 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
             console.error(`Failed to register emergencyErase (${keybinds.emergencyErase}):`, error);
         }
     }
+
+    // Register DevTools toggle shortcut (F12 or Cmd/Ctrl+Shift+I)
+    const devToolsKey = process.platform === 'darwin' ? 'Cmd+Shift+I' : 'F12';
+    try {
+        globalShortcut.register(devToolsKey, () => {
+            console.log('DevTools toggle triggered');
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                if (mainWindow.webContents.isDevToolsOpened()) {
+                    mainWindow.webContents.closeDevTools();
+                } else {
+                    mainWindow.webContents.openDevTools({ mode: 'detach' });
+                }
+            }
+        });
+        console.log(`Registered DevTools toggle: ${devToolsKey}`);
+    } catch (error) {
+        console.error(`Failed to register DevTools toggle (${devToolsKey}):`, error);
+    }
 }
 
 function setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef) {
