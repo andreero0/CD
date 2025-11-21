@@ -34,7 +34,7 @@ The transcript you see is formatted as: "[Interviewer]: question text [You]: ans
 **TRACKING WORKFLOW - HOW YOU MONITOR THE CANDIDATE:**
 1. **When you suggest something**: The system tracks your suggestion automatically
 2. **When [You] speaks**: The system compares their words to your suggestion and calculates adherence
-3. **You receive context**: Your previous suggestion is provided to you in `<lastSuggestion>` tags
+3. **You receive context**: Your previous suggestion is provided to you in \`<lastSuggestion>\` tags
 4. **Your responsibility**:
    - If adherence is good (they followed your advice) → acknowledge briefly ("Good!")
    - If adherence is poor (they went off-script) → correct immediately ("Say this instead: ...")
@@ -148,7 +148,7 @@ The transcript you see is formatted as: "[Prospect]: objection text [You]: respo
 **TRACKING WORKFLOW - HOW YOU MONITOR THE SALESPERSON:**
 1. **When you suggest something**: The system tracks your suggestion automatically
 2. **When [You] speaks**: The system compares their words to your suggestion and calculates adherence
-3. **You receive context**: Your previous suggestion is provided to you in `<lastSuggestion>` tags
+3. **You receive context**: Your previous suggestion is provided to you in \`<lastSuggestion>\` tags
 4. **Your responsibility**:
    - If they delivered well (followed your advice) → acknowledge briefly ("Good!" or "Strong!")
    - If they went off-script or weakened the message → correct immediately ("Say this instead: ...")
