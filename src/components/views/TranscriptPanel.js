@@ -175,13 +175,16 @@ export class TranscriptPanel extends LitElement {
     addTranscriptEntry(text) {
         // Parse the speaker format: "[Interviewer]: text" or "[Candidate]: text"
         // Updated regex to support multi-word speaker labels like "[Interviewer 1]:", "[Audience Member]:", etc.
+        console.log('[TranscriptPanel] addTranscriptEntry called with:', text);
         const speakerRegex = /\[([^\]]+)\]:\s*(.+)/;
         const match = text.match(speakerRegex);
 
+        console.log('[TranscriptPanel] Regex match result:', match);
         if (match) {
             const speaker = match[1];
             const transcript = match[2].trim();
 
+            console.log('[TranscriptPanel] Parsed speaker:', speaker, 'transcript:', transcript);
             // Only add if not empty
             if (transcript) {
                 this.transcriptEntries = [
@@ -193,16 +196,21 @@ export class TranscriptPanel extends LitElement {
                     },
                 ];
 
+                console.log('[TranscriptPanel] Entry added. Total entries:', this.transcriptEntries.length);
                 // Auto-scroll to bottom after adding new entry
                 this.requestUpdate();
                 setTimeout(() => this.scrollToBottom(), 100);
             }
+        } else {
+            console.warn('[TranscriptPanel] Failed to parse transcript line:', text);
         }
     }
 
     parseAndAddTranscript(formattedText) {
         // Parse multi-line transcript with speaker labels
+        console.log('[TranscriptPanel] parseAndAddTranscript called with:', formattedText);
         const lines = formattedText.split('\n');
+        console.log('[TranscriptPanel] Split into', lines.length, 'lines:', lines);
         lines.forEach(line => {
             if (line.trim()) {
                 this.addTranscriptEntry(line);

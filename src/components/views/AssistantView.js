@@ -767,10 +767,14 @@ export class AssistantView extends LitElement {
             };
 
             this.handleTranscriptUpdate = (transcript) => {
-                console.log('Transcript update:', transcript);
+                console.log('[AssistantView] Transcript update received:', transcript);
                 const transcriptPanel = this.shadowRoot.querySelector('transcript-panel');
+                console.log('[AssistantView] transcript-panel element:', transcriptPanel);
                 if (transcriptPanel) {
+                    console.log('[AssistantView] Calling parseAndAddTranscript');
                     transcriptPanel.parseAndAddTranscript(transcript);
+                } else {
+                    console.error('[AssistantView] transcript-panel element not found!');
                 }
             };
 
