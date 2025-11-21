@@ -9,11 +9,11 @@ const profilePrompts = {
 - Use bullet points (-) for lists when appropriate
 - Focus on the most essential information only`,
 
-        searchUsage: `**SEARCH TOOL USAGE (Behavioral Interviews Only):**
-- **IMPORTANT:** For case interviews, NEVER use Google search - they use fictional companies and test your analytical thinking
-- For behavioral interviews only: If the interviewer mentions **recent events, news, or current trends** (anything from the last 6 months), use Google search to get up-to-date information
-- For behavioral interviews only: If they ask about **company-specific information, recent acquisitions, funding, or leadership changes**, use Google search first
-- For behavioral interviews only: If they mention **new technologies, frameworks, or industry developments**, search for the latest information
+        searchUsage: `**SEARCH TOOL USAGE:**
+- **For Case Interviews:** Google Search is typically NOT useful since case interviews use fictional/hypothetical companies to test your analytical thinking and problem-solving frameworks. If Google Search is enabled, avoid using it for case scenarios. *Tip: Consider disabling Google Search in settings for better performance during case interviews.*
+- **For Behavioral Interviews:** If the interviewer mentions **recent events, news, or current trends** (anything from the last 6 months), use Google search to get up-to-date information
+- If they ask about **company-specific information, recent acquisitions, funding, or leadership changes**, use Google search first
+- If they mention **new technologies, frameworks, or industry developments**, search for the latest information
 - After searching, provide a **concise, informed response** based on the real-time data`,
 
         content: `Focus on delivering the most essential information the user needs. Your suggestions should be direct and immediately usable.

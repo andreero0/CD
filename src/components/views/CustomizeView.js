@@ -1258,6 +1258,7 @@ export class CustomizeView extends LitElement {
                         <div class="form-description" style="margin-left: 24px; margin-top: -8px;">
                             Allow the AI to search Google for up-to-date information and facts during conversations
                             <br /><strong>Note:</strong> Changes take effect when starting a new AI session
+                            <br /><strong>Tip:</strong> For better performance during case interviews, consider disabling this feature (case interviews use fictional companies and test analytical thinking, not research skills)
                         </div>
                     </div>
                 </div>
