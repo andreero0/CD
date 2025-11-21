@@ -609,49 +609,37 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             }
 
                             // SMART TRANSCRIPT BUFFERING: Prevent word-by-word fragmentation
-                            // Only send complete thoughts to avoid constant AI interruptions
+                            // Strategy: Buffer ALL speech regardless of speaker, send only on punctuation or timeout
+                            // Ignore speaker changes since Gemini's word-level attribution is unreliable
 
-                            // Detect speaker change BEFORE updating previousSpeaker
-                            const speakerJustChanged = previousSpeaker !== null && previousSpeaker !== speaker;
+                            // Check timeout BEFORE updating timestamp
+                            const now = Date.now();
+                            const timeSinceLastSpeech = now - lastUserSpeechTime;
+                            const timeoutReached = timeSinceLastSpeech > USER_SPEECH_TIMEOUT;
 
-                            if (speaker === 'You') {
-                                // Check timeout BEFORE updating lastUserSpeechTime
-                                const now = Date.now();
-                                const timeSinceLastSpeech = now - lastUserSpeechTime;
-                                const timeoutReached = timeSinceLastSpeech > USER_SPEECH_TIMEOUT;
+                            // Accumulate ALL speech fragments (both user and interviewer)
+                            userSpeechBuffer += newTranscript + ' ';
+                            lastUserSpeechTime = now;
 
-                                // Buffer user speech until sentence complete
-                                userSpeechBuffer += newTranscript + ' ';
-                                lastUserSpeechTime = now;
+                            // Check if we should send the buffered speech
+                            const trimmedBuffer = userSpeechBuffer.trim();
+                            const hasSentenceEnding = /[.!?]$/.test(trimmedBuffer);
 
-                                // Check if we should send the buffered speech
-                                const trimmedBuffer = userSpeechBuffer.trim();
-                                const hasSentenceEnding = /[.!?]$/.test(trimmedBuffer);
-
-                                // Send if: sentence ending detected OR timeout reached OR speaker changed
-                                if (hasSentenceEnding || speakerJustChanged || timeoutReached) {
-                                    const reason = hasSentenceEnding ? 'sentence complete' : (speakerJustChanged ? 'speaker turn' : 'timeout');
-                                    console.log(`[Transcript Buffer] Sending user speech (${reason}): "${trimmedBuffer}"`);
-                                    sendToRenderer('transcript-update', { text: trimmedBuffer, speaker: speaker });
-                                    userSpeechBuffer = ''; // Clear buffer after sending
-                                }
-                                // Otherwise, keep buffering (user is still speaking)
+                            // Send ONLY on: sentence ending OR timeout (ignore unreliable speaker changes)
+                            if (hasSentenceEnding || timeoutReached) {
+                                const reason = hasSentenceEnding ? 'sentence complete' : 'timeout';
+                                console.log(`[Transcript Buffer] Sending buffered speech (${reason}, ${trimmedBuffer.split(' ').length} words): "${trimmedBuffer.substring(0, 50)}..."`);
+                                sendToRenderer('transcript-update', { text: trimmedBuffer, speaker: speaker });
+                                userSpeechBuffer = ''; // Clear buffer after sending
                             } else {
-                                // For Interviewer/other speakers: send immediately
-                                // We want AI to respond quickly to questions
-
-                                // But first, flush any pending user speech buffer
-                                if (userSpeechBuffer.trim().length > 0) {
-                                    console.log(`[Transcript Buffer] Flushing user buffer on speaker change: "${userSpeechBuffer.trim()}"`);
-                                    sendToRenderer('transcript-update', { text: userSpeechBuffer.trim(), speaker: 'You' });
-                                    userSpeechBuffer = '';
+                                // Still buffering - log progress every 5 words
+                                const wordCount = trimmedBuffer.split(' ').length;
+                                if (wordCount % 5 === 0) {
+                                    console.log(`[Transcript Buffer] Buffering... (${wordCount} words, ${(USER_SPEECH_TIMEOUT - timeSinceLastSpeech) / 1000}s until timeout)`);
                                 }
-
-                                // Now send the interviewer speech immediately
-                                sendToRenderer('transcript-update', { text: newTranscript, speaker: speaker });
                             }
 
-                            // Update previous speaker for next turn detection (must be after buffering logic)
+                            // Update previous speaker for context tracking
                             previousSpeaker = speaker;
                         }
                     }
@@ -672,6 +660,13 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                                 sendToRenderer('update-response', messageBuffer);
                             }
                         }
+                    }
+
+                    // Handle response interruption (user interrupted or API cut off)
+                    if (message.serverContent?.interrupted) {
+                        console.log('[AI Response] Response interrupted, clearing messageBuffer');
+                        messageBuffer = '';
+                        isGenerationComplete = true;
                     }
 
                     if (message.serverContent?.generationComplete) {
