@@ -47,7 +47,21 @@ window.screenshotTracker = {
     lastScreenshotTime: 0,
     intervalSeconds: 5,
     isManualMode: false,
+    actualMinIntervalSeconds: 60, // Actual minimum interval enforced by throttling
 };
+
+// Smart screenshot throttling configuration
+const SCREENSHOT_MIN_INTERVAL = 60000; // 60 seconds minimum between automated screenshots
+const SCREENSHOT_MANUAL_MIN_INTERVAL = 5000; // 5 seconds minimum between manual screenshots
+let lastAutomatedScreenshotTime = 0;
+let lastManualScreenshotTime = 0;
+
+// Reset screenshot throttle timers (called when starting new session)
+function resetScreenshotThrottle() {
+    lastAutomatedScreenshotTime = 0;
+    lastManualScreenshotTime = 0;
+    console.log('Screenshot throttle timers reset');
+}
 
 // Audio level tracker for real-time UI feedback
 window.audioTracker = {
@@ -264,7 +278,9 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
     window.tokenTracker.reset();
     // Start audio token tracking
     window.tokenTracker.startAudioTracking();
-    console.log('Token tracker reset and audio tracking started for new capture session');
+    // Reset screenshot throttle timers for new session
+    resetScreenshotThrottle();
+    console.log('Token tracker reset, audio tracking started, and screenshot throttle reset for new capture session');
 
     const audioMode = localStorage.getItem('audioMode') || 'speaker_only';
     console.log('Audio mode:', audioMode);
@@ -510,13 +526,17 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
             // Don't start automatic capture in manual mode
         } else {
             const intervalMilliseconds = parseInt(screenshotIntervalSeconds) * 1000;
+
+            // Note: Even if user sets a shorter interval (e.g., 5 seconds), the captureScreenshot()
+            // function enforces a minimum 60-second throttle to save API quota. The interval will
+            // fire more frequently, but screenshots will be skipped until 60 seconds have passed.
             screenshotInterval = setInterval(() => captureScreenshot(imageQuality), intervalMilliseconds);
 
             // Update screenshot tracker for status bar
             window.screenshotTracker.isManualMode = false;
             window.screenshotTracker.intervalSeconds = parseInt(screenshotIntervalSeconds);
 
-            // Capture first screenshot immediately
+            // Capture first screenshot immediately (allowed by throttle reset above)
             setTimeout(() => captureScreenshot(imageQuality), 100);
         }
     } catch (err) {
@@ -798,9 +818,31 @@ async function captureScreenshot(imageQuality = 'medium', isManual = false) {
         return;
     }
 
-    // Check rate limiting for automated screenshots only
+    // Smart time-based throttling
+    const now = Date.now();
+    if (isManual) {
+        // Manual screenshots: softer throttle (5 seconds)
+        const timeSinceLastManual = now - lastManualScreenshotTime;
+        if (timeSinceLastManual < SCREENSHOT_MANUAL_MIN_INTERVAL) {
+            console.log(`Manual screenshot throttled: ${Math.round((SCREENSHOT_MANUAL_MIN_INTERVAL - timeSinceLastManual) / 1000)}s remaining`);
+            return;
+        }
+        lastManualScreenshotTime = now;
+    } else {
+        // Automated screenshots: strict throttle (60 seconds)
+        const timeSinceLastAutomated = now - lastAutomatedScreenshotTime;
+        if (timeSinceLastAutomated < SCREENSHOT_MIN_INTERVAL) {
+            const remainingSeconds = Math.round((SCREENSHOT_MIN_INTERVAL - timeSinceLastAutomated) / 1000);
+            console.log(`Automated screenshot throttled: ${remainingSeconds}s until next capture (saving API quota)`);
+            return;
+        }
+        lastAutomatedScreenshotTime = now;
+        console.log(`✓ Automated screenshot allowed (${Math.round(timeSinceLastAutomated / 1000)}s since last)`);
+    }
+
+    // Check rate limiting for automated screenshots only (token-based)
     if (!isManual && window.tokenTracker.shouldThrottle()) {
-        console.log('Automated screenshot skipped due to rate limiting');
+        console.log('Automated screenshot skipped due to token rate limiting');
 
         // Show rate limiting warning to user (only once per throttle period)
         if (!window._rateLimitWarningShown) {

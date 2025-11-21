@@ -38,6 +38,11 @@ let speakerContextBuffer = '';
 const CONTEXT_SEND_FALLBACK_TIMEOUT = 3000; // 3s fallback if no speaker change
 let lastContextSentTime = Date.now();
 
+// TRANSCRIPT BUFFERING: Prevent word-by-word fragmentation
+let userSpeechBuffer = ''; // Buffer to accumulate user speech
+let lastUserSpeechTime = Date.now(); // Track when last user speech arrived
+const USER_SPEECH_TIMEOUT = 2000; // 2 seconds of silence = sentence complete
+
 function setCurrentProfile(profile) {
     currentProfile = profile || 'interview';
 }
@@ -140,6 +145,7 @@ function sendSpeakerContextIfNeeded(currentSpeaker, geminiSessionRef, force = fa
 // Audio capture variables
 let systemAudioProc = null;
 let messageBuffer = '';
+let isGenerationComplete = true; // Track if previous AI response is complete
 
 // Reconnection tracking variables
 let reconnectionAttempts = 0;
@@ -164,6 +170,8 @@ async function initializeNewSession() {
     conversationHistory = [];
     speakerContextBuffer = '';
     lastContextSentTime = Date.now();
+    userSpeechBuffer = '';
+    lastUserSpeechTime = Date.now();
     clearCorrelationData();
     audioChunkQueue.length = 0;
     previousSpeaker = null;
@@ -412,6 +420,10 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
     isInitializingSession = true;
     sendToRenderer('session-initializing', true);
 
+    // Reset response buffer state for new session
+    messageBuffer = '';
+    isGenerationComplete = true;
+
     // SECURITY FIX: Create the initialization promise
     initializationPromise = (async () => {
         try {
@@ -596,16 +608,63 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                                 console.log('[Context Injection] Sent to AI with suggestion tracking (trigger: ' + triggerReason + ')');
                             }
 
-                            // Update previous speaker for next turn detection (must be outside the if block)
-                            previousSpeaker = speaker;
+                            // SMART TRANSCRIPT BUFFERING: Prevent word-by-word fragmentation
+                            // Only send complete thoughts to avoid constant AI interruptions
 
-                            // Send transcript update to renderer with speaker information
-                            sendToRenderer('transcript-update', { text: newTranscript, speaker: speaker });
+                            // Detect speaker change BEFORE updating previousSpeaker
+                            const speakerJustChanged = previousSpeaker !== null && previousSpeaker !== speaker;
+
+                            if (speaker === 'You') {
+                                // Check timeout BEFORE updating lastUserSpeechTime
+                                const now = Date.now();
+                                const timeSinceLastSpeech = now - lastUserSpeechTime;
+                                const timeoutReached = timeSinceLastSpeech > USER_SPEECH_TIMEOUT;
+
+                                // Buffer user speech until sentence complete
+                                userSpeechBuffer += newTranscript + ' ';
+                                lastUserSpeechTime = now;
+
+                                // Check if we should send the buffered speech
+                                const trimmedBuffer = userSpeechBuffer.trim();
+                                const hasSentenceEnding = /[.!?]$/.test(trimmedBuffer);
+
+                                // Send if: sentence ending detected OR timeout reached OR speaker changed
+                                if (hasSentenceEnding || speakerJustChanged || timeoutReached) {
+                                    const reason = hasSentenceEnding ? 'sentence complete' : (speakerJustChanged ? 'speaker turn' : 'timeout');
+                                    console.log(`[Transcript Buffer] Sending user speech (${reason}): "${trimmedBuffer}"`);
+                                    sendToRenderer('transcript-update', { text: trimmedBuffer, speaker: speaker });
+                                    userSpeechBuffer = ''; // Clear buffer after sending
+                                }
+                                // Otherwise, keep buffering (user is still speaking)
+                            } else {
+                                // For Interviewer/other speakers: send immediately
+                                // We want AI to respond quickly to questions
+
+                                // But first, flush any pending user speech buffer
+                                if (userSpeechBuffer.trim().length > 0) {
+                                    console.log(`[Transcript Buffer] Flushing user buffer on speaker change: "${userSpeechBuffer.trim()}"`);
+                                    sendToRenderer('transcript-update', { text: userSpeechBuffer.trim(), speaker: 'You' });
+                                    userSpeechBuffer = '';
+                                }
+
+                                // Now send the interviewer speech immediately
+                                sendToRenderer('transcript-update', { text: newTranscript, speaker: speaker });
+                            }
+
+                            // Update previous speaker for next turn detection (must be after buffering logic)
+                            previousSpeaker = speaker;
                         }
                     }
 
                     // Handle AI model response
                     if (message.serverContent?.modelTurn?.parts) {
+                        // DEFENSIVE: Clear buffer if this is a new turn (previous generation was complete)
+                        if (isGenerationComplete) {
+                            console.log('[AI Response] Starting new response, clearing messageBuffer');
+                            messageBuffer = '';
+                            isGenerationComplete = false;
+                        }
+
                         for (const part of message.serverContent.modelTurn.parts) {
                             console.log(part);
                             if (part.text) {
@@ -616,6 +675,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     }
 
                     if (message.serverContent?.generationComplete) {
+                        console.log('[AI Response] Generation complete, final messageBuffer:', messageBuffer.substring(0, 50) + '...');
                         sendToRenderer('update-response', messageBuffer);
 
                         // COACHING FEEDBACK LOOP: Track AI suggestion when generation is complete
@@ -629,7 +689,10 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             currentTranscription = ''; // Reset for next turn
                         }
 
+                        // DEFENSIVE: Clear buffer and mark as complete
                         messageBuffer = '';
+                        isGenerationComplete = true; // Mark generation as complete
+                        console.log('[AI Response] messageBuffer cleared, ready for next response');
                     }
 
                     if (message.serverContent?.turnComplete) {
@@ -993,6 +1056,7 @@ function clearSensitiveData() {
     lastSessionParams = null;
     currentTranscription = '';
     messageBuffer = '';
+    isGenerationComplete = true; // Reset generation tracking flag
     speakerContextBuffer = '';
 
     // Clear correlation data and queue
