@@ -28,6 +28,11 @@ let currentProfile = 'interview';
 let lastAudioSource = { type: 'mic', timestamp: Date.now() }; // 'mic' or 'system'
 const SPEAKER_ATTRIBUTION_WINDOW = 1000; // 1 second window
 
+// Buffer for sending speaker-labeled context to AI
+let speakerContextBuffer = '';
+let lastContextSentTime = Date.now();
+const CONTEXT_SEND_INTERVAL = 3000; // Send context every 3 seconds
+
 function setCurrentProfile(profile) {
     currentProfile = profile || 'interview';
 }
@@ -76,6 +81,9 @@ async function initializeNewSession() {
     currentSessionId = Date.now().toString();
     currentTranscription = '';
     conversationHistory = [];
+    speakerContextBuffer = '';
+    lastContextSentTime = Date.now();
+    lastAudioSource = { type: 'mic', timestamp: Date.now() };
     console.log('New conversation session started:', currentSessionId);
 
     // Initialize RAG system (async, non-blocking)
@@ -375,8 +383,6 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                         }
 
                         if (newTranscript && newTranscript.trim()) {
-                            currentTranscription += newTranscript + ' ';
-
                             // Determine speaker based on last active audio source
                             let speaker = 'You'; // Default to 'You' for mic
                             const timeSinceLastAudio = Date.now() - lastAudioSource.timestamp;
@@ -390,6 +396,28 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                                     // Mic audio is the interviewee (you)
                                     speaker = 'You';
                                 }
+                            }
+
+                            // Accumulate transcript WITH speaker labels for AI context
+                            // Format: "[Interviewer]: question [You]: answer"
+                            const formattedChunk = `[${speaker}]: ${newTranscript} `;
+                            currentTranscription += formattedChunk;
+                            speakerContextBuffer += formattedChunk;
+
+                            // Periodically send speaker-labeled context to AI so it knows who is speaking
+                            const now = Date.now();
+                            if (now - lastContextSentTime >= CONTEXT_SEND_INTERVAL && speakerContextBuffer.trim()) {
+                                // Send accumulated context to AI
+                                geminiSessionRef.current.sendRealtimeInput({
+                                    text: `<context>\n${speakerContextBuffer.trim()}\n</context>`
+                                }).catch(err => {
+                                    console.error('Failed to send speaker context:', err);
+                                });
+
+                                // Reset buffer and timer
+                                speakerContextBuffer = '';
+                                lastContextSentTime = now;
+                                console.log('[Speaker Context] Sent to AI');
                             }
 
                             // Send transcript update to renderer with speaker information
@@ -769,6 +797,8 @@ function clearSensitiveData() {
     lastSessionParams = null;
     currentTranscription = '';
     messageBuffer = '';
+    speakerContextBuffer = '';
+    lastAudioSource = { type: 'mic', timestamp: Date.now() };
 }
 
 function setupGeminiIpcHandlers(geminiSessionRef) {
