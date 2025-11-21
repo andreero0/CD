@@ -215,11 +215,6 @@ export class PrismApp extends LitElement {
                 this.requestUpdate();
             });
         }
-
-        // Initialize session stats when starting a session
-        if (window.sessionStats) {
-            window.sessionStats.start();
-        }
     }
 
     disconnectedCallback() {
@@ -265,6 +260,9 @@ export class PrismApp extends LitElement {
             this.handleClose();
             return;
         }
+
+        // End session stats tracking before getting summary
+        window.sessionStats.end();
 
         this.sessionSummary = window.sessionStats.getSummary();
         this.showSessionEndDialog = true;
@@ -527,6 +525,11 @@ export class PrismApp extends LitElement {
 
         // Initialize Gemini with selected profile and language
         await prism.initializeGemini(this.selectedProfile, this.selectedLanguage);
+
+        // Start session stats tracking
+        if (window.sessionStats) {
+            window.sessionStats.start();
+        }
 
         // Start capture with the pre-approved media streams
         // Note: We'll need to update startCapture to optionally accept existing streams

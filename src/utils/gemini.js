@@ -367,8 +367,11 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             newTranscript = formatSpeakerResults(message.serverContent.inputTranscription.results);
                         }
                         // Format 2: Simple text transcription (newer API format)
+                        // Need to format with speaker label for UI to display correctly
                         else if (message.serverContent.inputTranscription.text) {
-                            newTranscript = message.serverContent.inputTranscription.text;
+                            const labelMap = speakerLabelMaps[currentProfile] || speakerLabelMaps.interview;
+                            const speakerLabel = labelMap[1] || 'You';  // Default to "You" (index 1)
+                            newTranscript = `[${speakerLabel}]: ${message.serverContent.inputTranscription.text}`;
                         }
 
                         if (newTranscript && newTranscript.trim()) {

@@ -274,7 +274,7 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
                         });
 
                         console.log('BlackHole audio capture started successfully');
-                        setupLinuxMicProcessing(blackHoleStream); // Reuse mic processing for BlackHole
+                        setupBlackHoleProcessing(blackHoleStream); // Use dedicated BlackHole processor
                         audioCapturMethod = 'blackhole';
 
                         // Store for status display
@@ -618,6 +618,53 @@ function setupLinuxMicProcessing(micStream) {
     micAudioProcessor = micProcessor;
 }
 
+function setupBlackHoleProcessing(blackHoleStream) {
+    // Setup BlackHole system audio processing (similar to mic but updates systemLevel)
+    const blackHoleAudioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
+    const blackHoleSource = blackHoleAudioContext.createMediaStreamSource(blackHoleStream);
+    const blackHoleProcessor = blackHoleAudioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
+
+    let audioBuffer = [];
+    const samplesPerChunk = SAMPLE_RATE * AUDIO_CHUNK_DURATION;
+
+    blackHoleProcessor.onaudioprocess = async e => {
+        const inputData = e.inputBuffer.getChannelData(0);
+
+        // Calculate RMS audio level for UI display - update SYSTEM level since this is system audio
+        let sum = 0;
+        for (let i = 0; i < inputData.length; i++) {
+            sum += inputData[i] * inputData[i];
+        }
+        const rms = Math.sqrt(sum / inputData.length);
+        window.audioTracker.systemLevel = Math.min(1.0, rms * 10); // Scale for visibility
+        window.audioTracker.lastUpdate = Date.now();
+
+        audioBuffer.push(...inputData);
+
+        // Prevent memory leak: if buffer grows too large, remove oldest data
+        if (audioBuffer.length > MAX_AUDIO_BUFFER_SIZE * samplesPerChunk) {
+            console.warn('Audio buffer overflow detected, removing oldest data');
+            audioBuffer.splice(0, samplesPerChunk * 10); // Remove 1 second of old data
+        }
+
+        // Process audio in chunks
+        while (audioBuffer.length >= samplesPerChunk) {
+            const chunk = audioBuffer.splice(0, samplesPerChunk);
+            const pcmData16 = convertFloat32ToInt16(chunk);
+            const base64Data = arrayBufferToBase64(pcmData16.buffer);
+
+            // Send to system audio channel since BlackHole captures system audio
+            await ipcRenderer.invoke('send-audio-content', {
+                data: base64Data,
+                mimeType: 'audio/pcm;rate=24000',
+            });
+        }
+    };
+
+    blackHoleSource.connect(blackHoleProcessor);
+    blackHoleProcessor.connect(blackHoleAudioContext.destination);
+}
+
 function setupLinuxSystemAudioProcessing() {
     // Setup system audio processing for Linux (from getDisplayMedia)
     audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
@@ -842,6 +889,12 @@ async function captureScreenshot(imageQuality = 'medium', isManual = false) {
                         // Track image tokens after successful send
                         const imageTokens = window.tokenTracker.calculateImageTokens(offscreenCanvas.width, offscreenCanvas.height);
                         window.tokenTracker.addTokens(imageTokens, 'image');
+
+                        // Also track tokens in session stats
+                        if (window.sessionStats) {
+                            window.sessionStats.addTokens(imageTokens);
+                        }
+
                         console.log(`Image sent successfully - ${imageTokens} tokens used (${offscreenCanvas.width}x${offscreenCanvas.height})`);
 
                         // Update screenshot tracker for status bar
