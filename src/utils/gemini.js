@@ -14,6 +14,7 @@ let isInitializingSession = false;
 // Speaker label mappings for different profiles
 const speakerLabelMaps = {
     interview: ['Interviewer 1', 'You', 'Interviewer 2', 'Interviewer 3', 'Interviewer 4', 'Interviewer 5'],
+    consultant: ['Interviewer', 'You (Candidate)', 'Interviewer 2', 'Interviewer 3', 'Interviewer 4', 'Interviewer 5'],
     sales: ['Prospect', 'You', 'Decision Maker', 'Stakeholder 3', 'Stakeholder 4', 'Stakeholder 5'],
     meeting: ['Speaker 1', 'You', 'Speaker 2', 'Speaker 3', 'Speaker 4', 'Speaker 5'],
     presentation: ['Audience Member', 'You', 'Audience 2', 'Audience 3', 'Audience 4', 'Audience 5'],
@@ -305,7 +306,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
         customPrompt = customPrompt.substring(0, 10000);
     }
 
-    const validProfiles = ['interview', 'sales', 'meeting', 'presentation', 'negotiation', 'exam'];
+    const validProfiles = ['interview', 'consultant', 'sales', 'meeting', 'presentation', 'negotiation', 'exam'];
     if (!validProfiles.includes(profile)) {
         console.warn(`Invalid profile ${profile}, defaulting to interview`);
         profile = 'interview';

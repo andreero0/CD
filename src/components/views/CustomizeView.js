@@ -468,6 +468,11 @@ export class CustomizeView extends LitElement {
                 description: 'Get help with answering interview questions',
             },
             {
+                value: 'consultant',
+                name: 'Consultant Case Interview',
+                description: 'Structured framework for consulting case questions (McKinsey, BCG, Bain)',
+            },
+            {
                 value: 'sales',
                 name: 'Sales Call',
                 description: 'Assist with sales conversations and objection handling',
@@ -533,6 +538,7 @@ export class CustomizeView extends LitElement {
     getProfileNames() {
         return {
             interview: 'Job Interview',
+            consultant: 'Consultant Case Interview',
             sales: 'Sales Call',
             meeting: 'Business Meeting',
             presentation: 'Presentation',
