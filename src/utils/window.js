@@ -123,6 +123,13 @@ function createWindow(sendToRenderer, geminiSessionRef, randomNames = null) {
 
     mainWindow.loadFile(path.join(__dirname, '../index.html'));
 
+    // Enable DevTools for development and configuration
+    // Users can access via Cmd+Option+I (Mac) or Ctrl+Shift+I (Windows/Linux)
+    if (!app.isPackaged) {
+        // Only auto-open in development mode
+        mainWindow.webContents.openDevTools({ mode: 'detach' });
+    }
+
     // Set window title to random name if provided
     if (randomNames && randomNames.windowTitle) {
         mainWindow.setTitle(randomNames.windowTitle);
