@@ -237,17 +237,33 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
     console.log('Token tracker reset for new capture session');
 
     const audioMode = localStorage.getItem('audioMode') || 'speaker_only';
+    console.log('Audio mode:', audioMode);
+    console.log('Platform:', isMacOS ? 'macOS' : (isLinux ? 'Linux' : 'Windows'));
 
     try {
         if (isMacOS) {
             // On macOS, use SystemAudioDump for audio and getDisplayMedia for screen
             console.log('Starting macOS capture with SystemAudioDump...');
+            console.log('Audio mode:', audioMode);
+
+            if (audioMode === 'speaker_only') {
+                console.log('Speaker-only mode: SystemAudioDump will capture system audio');
+                console.log('IMPORTANT: Screen Recording permission required for parent app');
+                console.log('  - If running via npm start: Enable Terminal.app in System Settings');
+                console.log('  - If running packaged DMG: Enable Prism.app in System Settings');
+            }
 
             // Start macOS audio capture
+            console.log('Invoking start-macos-audio IPC call...');
             const audioResult = await ipcRenderer.invoke('start-macos-audio');
+            console.log('Audio result:', audioResult);
+
             if (!audioResult.success) {
+                console.error('SystemAudioDump failed to start:', audioResult.error);
                 throw new Error('Failed to start macOS audio capture: ' + audioResult.error);
             }
+
+            console.log('SystemAudioDump started successfully');
 
             // Use existing screen stream from wizard, or request new one
             if (existingScreenStream) {
@@ -439,6 +455,31 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
                     'Restart the application',
                     'Try starting the session again'
                 ];
+            } else if (err.message && (err.message.includes('SystemAudioDump') || err.message.includes('Screen Recording permission'))) {
+                // SystemAudioDump-specific error handling
+                errorMessage = 'System Audio Capture Failed - Permission Required';
+
+                if (isMacOS) {
+                    recoverySteps = [
+                        'Open System Settings → Privacy & Security → Screen Recording',
+                        'Enable either Terminal.app (if running via npm start) or Prism.app (if using DMG)',
+                        'Close and restart the app completely',
+                        'Try starting the session again',
+                        '',
+                        'Note: Screen Recording permission is required for capturing system audio on macOS'
+                    ];
+                } else {
+                    recoverySteps = [
+                        'Check your audio permissions',
+                        'Restart the application',
+                        'Try restarting the session'
+                    ];
+                }
+
+                // Include the actual error message for debugging
+                if (err.message.length < 200) {
+                    recoverySteps.push('', 'Error details: ' + err.message);
+                }
             } else if (err.message && err.message.includes('audio')) {
                 errorMessage = 'Audio capture failed';
                 recoverySteps = [
