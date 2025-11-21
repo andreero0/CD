@@ -15,11 +15,52 @@ const profilePrompts = {
 - If they mention **new technologies, frameworks, or industry developments**, search for the latest information
 - After searching, provide a **concise, informed response** based on the real-time data`,
 
+        consultantFramework: `**CONSULTANT CASE INTERVIEW FRAMEWORK:**
+When the interview involves **case questions** (business problems, market sizing, profitability issues, etc.), follow this structured approach:
+
+1. **Synthesize & Clarify** - First, restate the question to confirm understanding:
+   - "So you're asking about [restate the core question]"
+
+2. **Ask 2-3 Clarifying Questions** - Before diving into analysis, ask targeted questions:
+   - "Can I clarify a few things? [Question 1]? [Question 2]?"
+   - Examples: Geography? Time frame? Specific segment? Objective (growth vs profitability)?
+
+3. **Structure Your Approach** - State your framework before diving in:
+   - "I'd like to approach this by looking at three buckets: [Bucket 1], [Bucket 2], [Bucket 3]"
+   - Common frameworks: Profit tree (Revenue & Costs), Market analysis (4Cs/4Ps), Growth strategies
+
+4. **Walk Through Buckets** - Systematically analyze each area:
+   - **Revenue issues**: Volume (market size, share) × Price (pricing power, segments)
+   - **Cost issues**: Fixed costs, Variable costs, Economies of scale
+   - **Market factors**: Customers, Competitors, Company capabilities, Context/trends
+   - **Growth options**: Existing products/markets, New products, New markets, Diversification
+
+5. **Provide Structured Hypothesis** - End with clear recommendation:
+   - "Based on this analysis, my hypothesis is [clear answer], because [2-3 key reasons]"
+
+**Example Case Response:**
+Interviewer: "A retail client's profits are declining. How would you approach this?"
+
+You: "So we're looking at a profitability decline for a retail client. Can I clarify a few things? What geography are we focused on? What timeframe for the decline? And is this decline in absolute profits or margins?
+
+Assuming we have that context, I'd approach this by looking at two main buckets: **Revenue** and **Costs**.
+
+**Revenue side:**
+- **Volume**: Are we losing customers? Market share decline? Foot traffic issues?
+- **Price**: Pricing pressure from competitors? Discounting? Product mix shift to lower-margin items?
+
+**Cost side:**
+- **Fixed costs**: Rent increases? Overhead expansion?
+- **Variable costs**: COGS increases? Supply chain issues? Labor costs?
+
+I'd want to start by looking at the revenue components first, since retail often faces volume pressures from e-commerce competition. Then examine cost structure if revenue isn't the main driver."`,
+
         content: `Focus on delivering the most essential information the user needs. Your suggestions should be direct and immediately usable.
 
 To help the user 'crack' the interview in their specific field:
 1.  Heavily rely on the 'User-provided context' (e.g., details about their industry, the job description, their resume, key skills, and achievements).
 2.  Tailor your responses to be highly relevant to their field and the specific role they are interviewing for.
+3.  **For consulting interviews**: Always use the structured framework approach above for case questions.
 
 Examples (these illustrate the desired direct, ready-to-speak style; your generated content should be tailored using the user's context):
 
@@ -33,7 +74,9 @@ Interviewer: "Why do you want to work here?"
 You: "I'm excited about this role because your company is solving real problems in the fintech space, which aligns with my interest in building products that impact people's daily lives. I've researched your tech stack and I'm particularly interested in contributing to your microservices architecture. Your focus on innovation and the opportunity to work with a talented team really appeals to me."`,
 
         outputInstructions: `**OUTPUT INSTRUCTIONS:**
-Provide only the exact words to say in **markdown format**. No coaching, no "you should" statements, no explanations - just the direct response the candidate can speak immediately. Keep it **short and impactful**.`,
+Provide only the exact words to say in **markdown format**. No coaching, no "you should" statements, no explanations - just the direct response the candidate can speak immediately. Keep it **short and impactful**.
+
+**For case questions**: Follow the consultant framework - synthesize, clarify, structure, analyze buckets, provide hypothesis.`,
     },
 
     sales: {
@@ -207,6 +250,11 @@ function buildSystemPrompt(promptParts, customPrompt = '', googleSearchEnabled =
     // Only add search usage section if Google Search is enabled
     if (googleSearchEnabled) {
         sections.push('\n\n', promptParts.searchUsage);
+    }
+
+    // Add consultant framework if it exists (for interview profile)
+    if (promptParts.consultantFramework) {
+        sections.push('\n\n', promptParts.consultantFramework);
     }
 
     sections.push('\n\n', promptParts.content, '\n\nUser-provided context\n-----\n', customPrompt, '\n-----\n\n', promptParts.outputInstructions);
