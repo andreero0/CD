@@ -612,14 +612,13 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             // Strategy: Buffer ALL speech regardless of speaker, send only on punctuation or timeout
                             // Ignore speaker changes since Gemini's word-level attribution is unreliable
 
-                            // Check timeout BEFORE updating timestamp
-                            const now = Date.now();
-                            const timeSinceLastSpeech = now - lastUserSpeechTime;
+                            // Check timeout BEFORE updating timestamp (reuse now from context injection)
+                            const timeSinceLastSpeech = Date.now() - lastUserSpeechTime;
                             const timeoutReached = timeSinceLastSpeech > USER_SPEECH_TIMEOUT;
 
                             // Accumulate ALL speech fragments (both user and interviewer)
                             userSpeechBuffer += newTranscript + ' ';
-                            lastUserSpeechTime = now;
+                            lastUserSpeechTime = Date.now();
 
                             // Check if we should send the buffered speech
                             const trimmedBuffer = userSpeechBuffer.trim();
@@ -672,6 +671,9 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     if (message.serverContent?.generationComplete) {
                         console.log('[AI Response] Generation complete, final messageBuffer:', messageBuffer.substring(0, 50) + '...');
                         sendToRenderer('update-response', messageBuffer);
+
+                        // Send generation-complete event to UI
+                        sendToRenderer('generation-complete');
 
                         // COACHING FEEDBACK LOOP: Track AI suggestion when generation is complete
                         if (messageBuffer && messageBuffer.trim().length > 0) {

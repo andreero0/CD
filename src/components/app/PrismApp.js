@@ -173,6 +173,11 @@ export class PrismApp extends LitElement {
             ipcRenderer.on('update-response', (response) => {
                 this.setResponse(response);
             });
+            ipcRenderer.on('generation-complete', () => {
+                console.log('[generation-complete] Marking current response as complete');
+                this._currentResponseIsComplete = true;
+                this.requestUpdate();
+            });
             ipcRenderer.on('update-status', (status) => {
                 this.setStatus(status);
             });
@@ -223,6 +228,7 @@ export class PrismApp extends LitElement {
         if (window.electron) {
             const ipcRenderer = window.electron;
             ipcRenderer.removeAllListeners('update-response');
+            ipcRenderer.removeAllListeners('generation-complete');
             ipcRenderer.removeAllListeners('update-status');
             ipcRenderer.removeAllListeners('click-through-toggled');
             ipcRenderer.removeAllListeners('reconnection-status');
@@ -725,8 +731,7 @@ export class PrismApp extends LitElement {
                         @response-index-changed=${this.handleResponseIndexChanged}
                         @response-animation-complete=${() => {
                             this.shouldAnimateResponse = false;
-                            this._currentResponseIsComplete = true;
-                            console.log('[response-animation-complete] Marked current response as complete');
+                            console.log('[response-animation-complete] Animation finished (response may still be streaming)');
                             this.requestUpdate();
                         }}
                     ></assistant-view>
