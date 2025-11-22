@@ -14,6 +14,48 @@ let currentTranscription = '';
 let conversationHistory = [];
 let isInitializingSession = false;
 
+// ============================================================================
+// DUAL SESSION ARCHITECTURE FOR GUARANTEED SPEAKER ATTRIBUTION
+// ============================================================================
+// Dual Gemini Live session references
+let geminiMicSessionRef = { current: null };      // User microphone - coaching + transcription
+let geminiInterviewerSessionRef = { current: null }; // Interviewer audio - transcription only
+
+/**
+ * CONTEXT BRIDGE: Sends interviewer transcripts to mic session for conversation awareness
+ * @param {string} transcript - Interviewer transcript from Session #1
+ */
+async function bridgeInterviewerTranscript(transcript) {
+    if (!geminiMicSessionRef.current) {
+        console.warn('[Context Bridge] Mic session not ready, skipping bridge');
+        return;
+    }
+
+    if (!transcript || transcript.trim().length === 0) {
+        return;
+    }
+
+    try {
+        const contextMessage = `<context>[Interviewer]: ${transcript.trim()}</context>`;
+
+        if (process.env.DEBUG_DUAL_SESSION) {
+            console.log(`[Context Bridge] Sending interviewer transcript to mic session`);
+        }
+
+        const promise = geminiMicSessionRef.current.sendRealtimeInput({
+            text: contextMessage
+        });
+
+        if (promise && typeof promise.catch === 'function') {
+            promise.catch(err => {
+                console.error('[Context Bridge] Failed to send interviewer context:', err);
+            });
+        }
+    } catch (error) {
+        console.error('[Context Bridge] Error:', error);
+    }
+}
+
 /**
  * Normalizes text by removing excessive whitespace
  * Handles: multiple spaces, tabs, Unicode spaces, space before punctuation, spaces around newlines
@@ -816,6 +858,210 @@ async function attemptReconnection() {
     }
 }
 
+/**
+ * ============================================================================
+ * DUAL SESSION MESSAGE HANDLERS
+ * ============================================================================
+ * Creates separate message handlers for interviewer (transcription-only) and
+ * mic (coaching + transcription) sessions
+ */
+
+/**
+ * Creates message handler for INTERVIEWER session (transcription-only)
+ */
+function createInterviewerMessageHandler() {
+    return function(message) {
+        if (process.env.DEBUG_DUAL_SESSION) {
+            console.log('[Interviewer Session] Message:', message);
+        }
+
+        // Handle transcription from interviewer audio
+        if (message.serverContent?.inputTranscription) {
+            let transcript = '';
+
+            if (message.serverContent.inputTranscription.results) {
+                transcript = formatSpeakerResults(message.serverContent.inputTranscription.results);
+            } else if (message.serverContent.inputTranscription.text) {
+                transcript = message.serverContent.inputTranscription.text;
+            }
+
+            if (transcript && transcript.trim()) {
+                const trimmedTranscript = transcript.trim();
+                console.log(`[Interviewer Session] Transcript: "${trimmedTranscript.substring(0, 50)}..."`);
+
+                // 1. Bridge to mic session for context
+                bridgeInterviewerTranscript(trimmedTranscript);
+
+                // 2. Send to UI with "Interviewer" tag
+                sendToRenderer('transcript-update', {
+                    text: trimmedTranscript,
+                    speaker: 'Interviewer'
+                });
+
+                // 3. Add to conversation history
+                currentTranscription += `[Interviewer]: ${trimmedTranscript} `;
+                speakerContextBuffer += `[Interviewer]: ${trimmedTranscript} `;
+
+                // 4. Track metrics
+                validationMetrics.totalAttributions++;
+                validationMetrics.systemAudioAttributions++;
+            }
+        }
+
+        if (message.serverContent?.turnComplete) {
+            console.log('[Interviewer Session] Turn complete');
+        }
+    };
+}
+
+/**
+ * Creates message handler for MIC session (coaching + transcription)
+ */
+function createMicMessageHandler() {
+    return function(message) {
+        if (process.env.DEBUG_DUAL_SESSION) {
+            console.log('[Mic Session] Message:', message);
+        }
+
+        // Handle transcription from user mic
+        if (message.serverContent?.inputTranscription) {
+            let transcript = '';
+
+            if (message.serverContent.inputTranscription.results) {
+                transcript = formatSpeakerResults(message.serverContent.inputTranscription.results);
+            } else if (message.serverContent.inputTranscription.text) {
+                transcript = message.serverContent.inputTranscription.text;
+            }
+
+            if (transcript && transcript.trim()) {
+                const trimmedTranscript = transcript.trim();
+                console.log(`[Mic Session] Transcript: "${trimmedTranscript.substring(0, 50)}..."`);
+
+                // 1. Send to UI with "You" tag
+                sendToRenderer('transcript-update', {
+                    text: trimmedTranscript,
+                    speaker: 'You'
+                });
+
+                // 2. Add to conversation history
+                currentTranscription += `[You]: ${trimmedTranscript} `;
+                speakerContextBuffer += `[You]: ${trimmedTranscript} `;
+
+                // 3. Track for coaching feedback
+                const comparison = conversationState.compareResponse(trimmedTranscript);
+                if (comparison && comparison.hasSuggestion) {
+                    console.log(`[Coaching] User adherence: ${comparison.adherence}% - ${comparison.analysis}`);
+                }
+
+                // 4. Track metrics
+                validationMetrics.totalAttributions++;
+                validationMetrics.micSessionAttributions++;
+            }
+        }
+
+        // Handle AI coaching responses
+        if (message.serverContent?.modelTurn?.parts) {
+            if (isGenerationComplete) {
+                console.log('[Mic Session] Starting new coaching response');
+                messageBuffer = '';
+                isGenerationComplete = false;
+            }
+
+            for (const part of message.serverContent.modelTurn.parts) {
+                if (part.text) {
+                    messageBuffer += part.text;
+                    sendToRenderer('update-response', messageBuffer);
+                }
+            }
+        }
+
+        if (message.serverContent?.interrupted) {
+            console.log('[Mic Session] Response interrupted');
+            messageBuffer = '';
+            isGenerationComplete = true;
+        }
+
+        if (message.serverContent?.generationComplete) {
+            console.log('[Mic Session] Coaching response complete');
+            sendToRenderer('update-response', messageBuffer);
+            sendToRenderer('generation-complete');
+
+            if (messageBuffer && messageBuffer.trim().length > 0) {
+                conversationState.trackSuggestion(messageBuffer.trim(), 'AI Coach');
+            }
+
+            if (currentTranscription && messageBuffer) {
+                saveConversationTurn(currentTranscription, messageBuffer);
+                currentTranscription = '';
+            }
+
+            messageBuffer = '';
+            isGenerationComplete = true;
+        }
+
+        if (message.serverContent?.turnComplete) {
+            sendToRenderer('update-status', 'Listening...');
+        }
+    };
+}
+
+/**
+ * Creates error handler for a session
+ */
+function createErrorHandler(sessionType) {
+    return function(e) {
+        console.error(`[${sessionType} Session] Error:`, e.message);
+
+        const isApiKeyError =
+            e.message &&
+            (e.message.includes('API key not valid') ||
+                e.message.includes('invalid API key') ||
+                e.message.includes('authentication failed') ||
+                e.message.includes('unauthorized'));
+
+        if (isApiKeyError) {
+            console.log(`[${sessionType} Session] API key error`);
+            lastSessionParams = null;
+            reconnectionAttempts = maxReconnectionAttempts;
+            sendToRenderer('update-status', `Error: Invalid API key (${sessionType})`);
+            return;
+        }
+
+        sendToRenderer('update-status', `Warning: ${sessionType} session error - ${e.message}`);
+    };
+}
+
+/**
+ * Creates close handler for a session
+ */
+function createCloseHandler(sessionType) {
+    return function(e) {
+        console.log(`[${sessionType} Session] Closed:`, e.reason);
+
+        const isApiKeyError =
+            e.reason &&
+            (e.reason.includes('API key not valid') ||
+                e.reason.includes('invalid API key') ||
+                e.reason.includes('authentication failed') ||
+                e.reason.includes('unauthorized'));
+
+        if (isApiKeyError) {
+            console.log(`[${sessionType} Session] Closed due to API key error`);
+            lastSessionParams = null;
+            reconnectionAttempts = maxReconnectionAttempts;
+            sendToRenderer('update-status', `Session closed: Invalid API key (${sessionType})`);
+            return;
+        }
+
+        if (lastSessionParams && reconnectionAttempts < maxReconnectionAttempts) {
+            console.log(`[${sessionType} Session] Attempting reconnection...`);
+            attemptReconnection();
+        } else {
+            sendToRenderer('update-status', `${sessionType} session closed`);
+        }
+    };
+}
+
 async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'interview', language = 'en-US', isReconnection = false) {
     // SECURITY FIX: If already initializing, wait for that promise to complete
     if (initializationPromise) {
@@ -915,339 +1161,128 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
         console.log('[SessionLogger] Session logging initialized');
     }
 
-        const session = await client.live.connect({
-            model: 'gemini-live-2.5-flash-preview',
-            callbacks: {
-                onopen: function () {
-                    sendToRenderer('update-status', 'Live session connected');
+        // ============================================================================
+        // DUAL SESSION INITIALIZATION
+        // Create TWO separate Gemini sessions for guaranteed speaker attribution
+        // ============================================================================
+
+        console.log('[Dual Session] Initializing two separate Gemini sessions...');
+
+        // System prompt for INTERVIEWER session (transcription-only)
+        const interviewerSystemPrompt = "You are a transcription service. Only transcribe audio accurately. Do not generate responses or coaching suggestions.";
+
+        // System prompt for MIC session (full coaching)
+        const micSystemPrompt = systemPrompt; // Use the full coaching prompt built earlier
+
+        try {
+            // ========================================================================
+            // SESSION #1: INTERVIEWER (Transcription-Only)
+            // ========================================================================
+            console.log('[Dual Session] Creating interviewer session (transcription-only)...');
+
+            const interviewerSession = await client.live.connect({
+                model: 'gemini-live-2.5-flash-preview',
+                callbacks: {
+                    onopen: function() {
+                        console.log('[Interviewer Session] Connected');
+                        sendToRenderer('update-status', 'Interviewer session connected');
+                    },
+                    onmessage: createInterviewerMessageHandler(),
+                    onerror: createErrorHandler('Interviewer'),
+                    onclose: createCloseHandler('Interviewer'),
                 },
-                onmessage: function (message) {
-                    console.log('----------------', message);
-
-                    // Handle transcription updates (support both .results and .text formats)
-                    if (message.serverContent?.inputTranscription) {
-                        let newTranscript = '';
-
-                        // Format 1: Speaker diarization results (structured format)
-                        if (message.serverContent.inputTranscription.results) {
-                            newTranscript = formatSpeakerResults(message.serverContent.inputTranscription.results);
-                        }
-                        // Format 2: Simple text transcription (newer API format)
-                        else if (message.serverContent.inputTranscription.text) {
-                            newTranscript = message.serverContent.inputTranscription.text;
-                        }
-
-                        if (newTranscript && newTranscript.trim()) {
-                            // TRANSCRIPT BUFFERING: Accumulate fragments before processing
-                            // This prevents syllable-by-syllable speaker attribution
-
-                            // Reset buffer start time if buffer was empty
-                            if (userSpeechBuffer === '') {
-                                bufferStartTime = Date.now();
-                            }
-
-                            userSpeechBuffer += newTranscript + ' ';
-
-                            // Update last speech time for timeout tracking
-                            const now = Date.now();
-                            const timeSinceLastSpeech = now - lastUserSpeechTime;
-                            const bufferDuration = now - bufferStartTime;
-                            lastUserSpeechTime = now;
-
-                            // Check if we should flush the buffer
-                            const trimmedBuffer = userSpeechBuffer.trim();
-                            const wordCount = trimmedBuffer.split(/\s+/).length;
-                            // Ignore ellipsis (...) - only flush on real sentence endings (. ! ?)
-                            const hasRealPunctuation = /[.!?]$/.test(trimmedBuffer) && !/\.\.\.+$/.test(trimmedBuffer);
-                            // Only allow punctuation flush if buffer has been accumulating for minimum duration
-                            // This prevents premature flushing on Gemini's incorrectly inserted periods
-                            const hasEndPunctuation = hasRealPunctuation && bufferDuration >= MIN_BUFFER_DURATION;
-                            const timeoutReached = timeSinceLastSpeech >= USER_SPEECH_TIMEOUT;
-                            // Increased word threshold from 5 to 12 for better phrase accumulation
-                            const shouldFlush = wordCount >= 12 || hasEndPunctuation || timeoutReached;
-
-                            if (shouldFlush && trimmedBuffer) {
-                                const reason = hasEndPunctuation ? 'sentence complete' : timeoutReached ? 'timeout' : `${wordCount} words`;
-                                console.log(`[Transcript Buffer] Sending buffered speech (${reason}, ${wordCount} words): "${trimmedBuffer.substring(0, 50)}..."`);
-
-                                // NOW do speaker attribution on the complete buffered phrase
-                                const speaker = determineSpeakerFromCorrelation();
-
-                                // VALIDATE SPEAKER ATTRIBUTION
-                                const validation = validateSpeakerAttribution(speaker, trimmedBuffer);
-
-                                // Log validation results when debugging is enabled
-                                if (process.env.DEBUG_SPEAKER_ATTRIBUTION) {
-                                    const { sessionLogger } = require('./sessionLogger');
-                                    const debugInfo = {
-                                        timestamp: new Date().toISOString(),
-                                        transcript: trimmedBuffer.substring(0, 50) + '...',
-                                        attributedSpeaker: speaker,
-                                        correlationUsed: true,
-                                        queueRemainingSize: audioChunkQueue.length,
-                                        validation: {
-                                            confidence: validation.confidence.toFixed(2),
-                                            warnings: validation.warnings,
-                                            queueSize: validation.queueSize,
-                                            queueAge: validation.queueAge ? `${validation.queueAge}ms` : 'N/A'
-                                        }
-                                    };
-
-                                    // Log to both console and file
-                                    console.log('[DEBUG] Speaker attribution:', debugInfo);
-                                    sessionLogger.log('SpeakerAttribution', JSON.stringify(debugInfo, null, 2));
-
-                                    // Log warnings if any
-                                    if (validation.warnings.length > 0) {
-                                        const warningMsg = '[Validation Warnings] ' + validation.warnings.join(', ');
-                                        console.warn(warningMsg);
-                                        sessionLogger.log('ValidationWarning', warningMsg);
-                                    }
-
-                                    // Periodically log validation metrics (every 50 attributions)
-                                    if (validationMetrics.totalAttributions % 50 === 0) {
-                                        logValidationMetrics();
-                                    }
-                                }
-
-                                // COACHING FEEDBACK LOOP: When user speaks, compare against suggestion
-                                if (speaker === 'You') {
-                                    const comparison = conversationState.compareResponse(trimmedBuffer);
-                                    if (comparison && comparison.hasSuggestion) {
-                                        console.log(`[Coaching] User adherence to suggestion: ${comparison.adherence}% - ${comparison.analysis}`);
-                                    }
-                                }
-
-                                // Accumulate transcript WITH speaker labels for AI context
-                                const formattedChunk = `[${speaker}]: ${trimmedBuffer} `;
-                                currentTranscription += formattedChunk;
-                                speakerContextBuffer += formattedChunk;
-
-                                // EVENT-DRIVEN CONTEXT INJECTION
-                                // Send context on speaker turn boundaries (primary) or 3s timeout (fallback)
-                                const timeSinceLastContext = now - lastContextSentTime;
-                                const speakerChanged = previousSpeaker !== null && previousSpeaker !== speaker;
-                                const contextTimeoutReached = timeSinceLastContext >= CONTEXT_SEND_FALLBACK_TIMEOUT;
-                                const shouldSendContext = speakerChanged || contextTimeoutReached;
-
-                                if (shouldSendContext && speakerContextBuffer.trim()) {
-                                    const triggerReason = speakerChanged ? 'speaker_turn' : 'timeout_fallback';
-                                    console.log(`[Context Injection] Sending (trigger: ${triggerReason})`);
-                                    // Build context message with suggestion tracking
-                                    let contextMessage = `<context>\n${speakerContextBuffer.trim()}\n</context>`;
-
-                                    // COACHING FEEDBACK LOOP: Add last suggestion to context so AI remembers what it suggested
-                                    const currentSuggestion = conversationState.getCurrentSuggestion();
-                                    if (currentSuggestion) {
-                                        contextMessage += `\n<lastSuggestion>\nYou suggested: "${currentSuggestion.text}"\nTurn ID: ${currentSuggestion.turnId}\nTime: ${new Date(currentSuggestion.timestamp).toISOString()}\n</lastSuggestion>`;
-                                    }
-
-                                // RAG INTEGRATION: When interviewer asks a question, retrieve relevant past context
-                                // Note: We'll send RAG context separately after retrieval to avoid blocking
-                                if (speaker === 'Interviewer' && trimmedBuffer && trimmedBuffer.trim().length > 10) {
-                                    (async () => {
-                                        try {
-                                            console.log('[RAG] Retrieving context for interviewer question...');
-                                            const ragResult = await retrieveContext(trimmedBuffer, currentSessionId, {
-                                                topK: 3,              // Get top 3 most relevant chunks
-                                                minScore: 0.6,        // Minimum similarity threshold
-                                                maxTokens: 400,       // Max tokens for RAG context
-                                                includeMetadata: true,
-                                            });
-
-                                            if (ragResult.usedRAG && ragResult.context) {
-                                                // Send RAG context as a separate message
-                                                const ragContextMessage = `<relevantHistory>\n${ragResult.context}\n</relevantHistory>`;
-                                                console.log(`[RAG] Sending ${ragResult.chunks?.length || 0} relevant chunks (avg similarity: ${ragResult.avgScore?.toFixed(2)})`);
-
-                                                try {
-                                                    const promise = geminiSessionRef.current?.sendRealtimeInput({
-                                                        text: ragContextMessage
-                                                    });
-
-                                                    if (promise && typeof promise.catch === 'function') {
-                                                        promise.catch(err => {
-                                                            console.error('[RAG] Failed to send RAG context:', err);
-                                                        });
-                                                    }
-                                                } catch (err) {
-                                                    console.error('[RAG] Error sending RAG context:', err);
-                                                }
-                                            } else if (ragResult.fallback) {
-                                                console.log(`[RAG] Fallback mode: ${ragResult.reason}`);
-                                            }
-                                        } catch (error) {
-                                            console.error('[RAG] Error retrieving context:', error);
-                                            // Continue without RAG context
-                                        }
-                                    })();
-                                }
-
-                                // Send accumulated context to AI with defensive promise handling
-                                try {
-                                    if (geminiSessionRef.current && typeof geminiSessionRef.current.sendRealtimeInput === 'function') {
-                                        const promise = geminiSessionRef.current.sendRealtimeInput({
-                                            text: contextMessage
-                                        });
-
-                                        if (promise && typeof promise.catch === 'function') {
-                                            promise.catch(err => {
-                                                console.error('[Context Injection] Failed to send speaker context:', err);
-                                            });
-                                        }
-                                        // Session is ready but sendRealtimeInput returned undefined - this is OK during certain states
-                                    }
-                                    // Silently skip if session not ready - this is normal during initialization/processing
-                                } catch (err) {
-                                    console.error('[Context Injection] Error calling sendRealtimeInput:', err);
-                                }
-
-                                // Reset buffer and timer
-                                speakerContextBuffer = '';
-                                lastContextSentTime = now;
-                                console.log('[Context Injection] Sent to AI with suggestion tracking (trigger: ' + triggerReason + ')');
-                            }
-
-                                // Send buffered transcript to UI
-                                sendToRenderer('transcript-update', { text: trimmedBuffer, speaker: speaker });
-
-                                // Clear buffer after processing
-                                userSpeechBuffer = '';
-                                bufferStartTime = now; // Reset buffer start time for next accumulation
-
-                                // Update previous speaker for turn tracking
-                                previousSpeaker = speaker;
-                            } else {
-                                // Still buffering - log progress
-                                if (wordCount >= 5 && wordCount % 5 === 0) {
-                                    console.log(`[Transcript Buffer] Buffering... (${wordCount} words, ${(USER_SPEECH_TIMEOUT - timeSinceLastSpeech) / 1000}s until timeout)`);
-                                }
-                            }
-                        }
-                    }
-
-                    // Handle AI model response
-                    if (message.serverContent?.modelTurn?.parts) {
-                        // DEFENSIVE: Clear buffer if this is a new turn (previous generation was complete)
-                        if (isGenerationComplete) {
-                            console.log('[AI Response] Starting new response, clearing messageBuffer');
-                            messageBuffer = '';
-                            isGenerationComplete = false;
-                        }
-
-                        for (const part of message.serverContent.modelTurn.parts) {
-                            console.log(part);
-                            if (part.text) {
-                                messageBuffer += part.text;
-                                sendToRenderer('update-response', messageBuffer);
-                            }
-                        }
-                    }
-
-                    // Handle response interruption (user interrupted or API cut off)
-                    if (message.serverContent?.interrupted) {
-                        console.log('[AI Response] Response interrupted, clearing messageBuffer');
-                        messageBuffer = '';
-                        isGenerationComplete = true;
-                    }
-
-                    if (message.serverContent?.generationComplete) {
-                        console.log('[AI Response] Generation complete, final messageBuffer:', messageBuffer.substring(0, 50) + '...');
-                        sendToRenderer('update-response', messageBuffer);
-
-                        // Send generation-complete event to UI
-                        sendToRenderer('generation-complete');
-
-                        // COACHING FEEDBACK LOOP: Track AI suggestion when generation is complete
-                        if (messageBuffer && messageBuffer.trim().length > 0) {
-                            conversationState.trackSuggestion(messageBuffer.trim(), 'AI Coach');
-                        }
-
-                        // Save conversation turn when we have both transcription and AI response
-                        if (currentTranscription && messageBuffer) {
-                            saveConversationTurn(currentTranscription, messageBuffer);
-                            currentTranscription = ''; // Reset for next turn
-                        }
-
-                        // DEFENSIVE: Clear buffer and mark as complete
-                        messageBuffer = '';
-                        isGenerationComplete = true; // Mark generation as complete
-                        console.log('[AI Response] messageBuffer cleared, ready for next response');
-                    }
-
-                    if (message.serverContent?.turnComplete) {
-                        sendToRenderer('update-status', 'Listening...');
-                    }
+                config: {
+                    responseModalities: [], // No responses needed - transcription only
+                    tools: [], // No tools for transcription-only session
+                    inputAudioTranscription: {
+                        enableSpeakerDiarization: false, // Single speaker expected
+                        languageCode: language,
+                    },
+                    contextWindowCompression: { slidingWindow: {} },
+                    speechConfig: { languageCode: language },
+                    systemInstruction: {
+                        parts: [{ text: interviewerSystemPrompt }],
+                    },
                 },
-                onerror: function (e) {
-                    console.debug('Error:', e.message);
+            });
 
-                    // Check if the error is related to invalid API key
-                    const isApiKeyError =
-                        e.message &&
-                        (e.message.includes('API key not valid') ||
-                            e.message.includes('invalid API key') ||
-                            e.message.includes('authentication failed') ||
-                            e.message.includes('unauthorized'));
+            geminiInterviewerSessionRef.current = interviewerSession;
+            console.log('[Interviewer Session] Initialized successfully');
 
-                    if (isApiKeyError) {
-                        console.log('Error due to invalid API key - stopping reconnection attempts');
-                        lastSessionParams = null; // Clear session params to prevent reconnection
-                        reconnectionAttempts = maxReconnectionAttempts; // Stop further attempts
-                        sendToRenderer('update-status', 'Error: Invalid API key');
-                        return;
-                    }
+            // ========================================================================
+            // SESSION #2: MIC (Coaching + Transcription)
+            // ========================================================================
+            console.log('[Dual Session] Creating mic session (coaching + transcription)...');
 
-                    sendToRenderer('update-status', 'Error: ' + e.message);
+            const micSession = await client.live.connect({
+                model: 'gemini-live-2.5-flash-preview',
+                callbacks: {
+                    onopen: function() {
+                        console.log('[Mic Session] Connected');
+                        sendToRenderer('update-status', 'Live session connected (dual mode)');
+                    },
+                    onmessage: createMicMessageHandler(),
+                    onerror: createErrorHandler('Mic'),
+                    onclose: createCloseHandler('Mic'),
                 },
-                onclose: function (e) {
-                    console.debug('Session closed:', e.reason);
-
-                    // Check if the session closed due to invalid API key
-                    const isApiKeyError =
-                        e.reason &&
-                        (e.reason.includes('API key not valid') ||
-                            e.reason.includes('invalid API key') ||
-                            e.reason.includes('authentication failed') ||
-                            e.reason.includes('unauthorized'));
-
-                    if (isApiKeyError) {
-                        console.log('Session closed due to invalid API key - stopping reconnection attempts');
-                        lastSessionParams = null; // Clear session params to prevent reconnection
-                        reconnectionAttempts = maxReconnectionAttempts; // Stop further attempts
-                        sendToRenderer('update-status', 'Session closed: Invalid API key');
-                        return;
-                    }
-
-                    // Attempt automatic reconnection for server-side closures
-                    if (lastSessionParams && reconnectionAttempts < maxReconnectionAttempts) {
-                        console.log('Attempting automatic reconnection...');
-                        attemptReconnection();
-                    } else {
-                        sendToRenderer('update-status', 'Session closed');
-                    }
+                config: {
+                    responseModalities: ['TEXT'], // Enable AI coaching responses
+                    tools: enabledTools, // Full tools for coaching session
+                    inputAudioTranscription: {
+                        enableSpeakerDiarization: false, // Single speaker expected (user mic)
+                        languageCode: language,
+                    },
+                    contextWindowCompression: { slidingWindow: {} },
+                    speechConfig: { languageCode: language },
+                    systemInstruction: {
+                        parts: [{ text: micSystemPrompt }],
+                    },
                 },
-            },
-            config: {
-                responseModalities: ['TEXT'],
-                tools: enabledTools,
-                // Enable speaker diarization
-                inputAudioTranscription: {
-                    enableSpeakerDiarization: true,
-                    minSpeakerCount: 2,
-                    maxSpeakerCount: 2,
-                },
-                contextWindowCompression: { slidingWindow: {} },
-                speechConfig: { languageCode: language },
-                systemInstruction: {
-                    parts: [{ text: systemPrompt }],
-                },
-            },
-        });
+            });
+
+            geminiMicSessionRef.current = micSession;
+            console.log('[Mic Session] Initialized successfully');
+
+            // Store both sessions globally for IPC handlers
+            global.geminiMicSessionRef = geminiMicSessionRef;
+            global.geminiInterviewerSessionRef = geminiInterviewerSessionRef;
+
+            console.log('[Dual Session] Both sessions initialized successfully');
+            sendToRenderer('update-status', 'Dual session mode active');
+
+        } catch (error) {
+            console.error('[Dual Session] Failed to initialize sessions:', error);
+
+            // Cleanup partial initialization
+            if (geminiInterviewerSessionRef.current) {
+                try {
+                    await geminiInterviewerSessionRef.current.close();
+                } catch (e) {
+                    console.error('[Dual Session] Error closing interviewer session during cleanup:', e);
+                }
+                geminiInterviewerSessionRef.current = null;
+            }
+
+            if (geminiMicSessionRef.current) {
+                try {
+                    await geminiMicSessionRef.current.close();
+                } catch (e) {
+                    console.error('[Dual Session] Error closing mic session during cleanup:', e);
+                }
+                geminiMicSessionRef.current = null;
+            }
+
+            isInitializingSession = false;
+            sendToRenderer('session-initializing', false);
+            sendToRenderer('update-status', 'Error: Failed to initialize dual sessions');
+            return null;
+        }
 
         isInitializingSession = false;
         sendToRenderer('session-initializing', false);
-        return session;
+
+        // Return mic session as the "primary" session for backward compatibility
+        return geminiMicSessionRef.current;
     } catch (error) {
         console.error('Failed to initialize Gemini session:', error);
         isInitializingSession = false;
@@ -1568,7 +1603,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
     });
 
     ipcMain.handle('send-audio-content', async (event, { data, mimeType }) => {
-        if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
+        if (!geminiInterviewerSessionRef.current) return { success: false, error: 'No active interviewer session' };
 
         // SECURITY FIX: Validate audio data
         if (!data || typeof data !== 'string') {
@@ -1589,24 +1624,9 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
         try {
             // Generate correlation ID and track this audio chunk
             const correlationId = generateCorrelationId();
-            trackAudioChunk(correlationId, 'system', Date.now());
-
-            // Add to FIFO queue for speaker matching
-            audioChunkQueue.push({ source: 'system', timestamp: Date.now(), correlationId });
-
-            // Limit queue size to prevent memory leaks
-            if (audioChunkQueue.length > MAX_QUEUE_SIZE) {
-                audioChunkQueue.shift(); // Remove oldest
-            }
-
-            // Queue overflow detection
-            if (audioChunkQueue.length > 100) {
-                const { sessionLogger } = require('./sessionLogger');
-                sessionLogger.log('AudioCorrelation', `Warning: Queue size ${audioChunkQueue.length} exceeds 100 - possible correlation drift`);
-            }
-
+            // Send to interviewer session (transcription-only)
             process.stdout.write('.');
-            await geminiSessionRef.current.sendRealtimeInput({
+            await geminiInterviewerSessionRef.current.sendRealtimeInput({
                 audio: { data: data, mimeType: mimeType },
             });
             return { success: true };
@@ -1618,7 +1638,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
 
     // Handle microphone audio on a separate channel
     ipcMain.handle('send-mic-audio-content', async (event, { data, mimeType }) => {
-        if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
+        if (!geminiMicSessionRef.current) return { success: false, error: 'No active mic session' };
 
         // SECURITY FIX: Validate audio data
         if (!data || typeof data !== 'string') {
@@ -1639,24 +1659,9 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
         try {
             // Generate correlation ID and track this audio chunk
             const correlationId = generateCorrelationId();
-            trackAudioChunk(correlationId, 'mic', Date.now());
-
-            // Add to FIFO queue for speaker matching
-            audioChunkQueue.push({ source: 'mic', timestamp: Date.now(), correlationId });
-
-            // Limit queue size to prevent memory leaks
-            if (audioChunkQueue.length > MAX_QUEUE_SIZE) {
-                audioChunkQueue.shift(); // Remove oldest
-            }
-
-            // Queue overflow detection
-            if (audioChunkQueue.length > 100) {
-                const { sessionLogger } = require('./sessionLogger');
-                sessionLogger.log('AudioCorrelation', `Warning: Queue size ${audioChunkQueue.length} exceeds 100 - possible correlation drift`);
-            }
-
+            // Send to mic session (coaching + transcription)
             process.stdout.write(',');
-            await geminiSessionRef.current.sendRealtimeInput({
+            await geminiMicSessionRef.current.sendRealtimeInput({
                 audio: { data: data, mimeType: mimeType },
             });
             return { success: true };
@@ -1667,7 +1672,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
     });
 
     ipcMain.handle('send-image-content', async (event, { data, debug }) => {
-        if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
+        if (!geminiMicSessionRef.current) return { success: false, error: 'No active mic session' };
 
         try {
             if (!data || typeof data !== 'string') {
@@ -1695,7 +1700,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             }
 
             process.stdout.write('!');
-            await geminiSessionRef.current.sendRealtimeInput({
+            await geminiMicSessionRef.current.sendRealtimeInput({
                 media: { data: data, mimeType: 'image/jpeg' },
             });
 
@@ -1707,7 +1712,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
     });
 
     ipcMain.handle('send-text-message', async (event, text) => {
-        if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
+        if (!geminiMicSessionRef.current) return { success: false, error: 'No active mic session' };
 
         try {
             if (!text || typeof text !== 'string' || text.trim().length === 0) {
@@ -1721,7 +1726,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             }
 
             console.log('Sending text message:', text);
-            await geminiSessionRef.current.sendRealtimeInput({ text: text.trim() });
+            await geminiMicSessionRef.current.sendRealtimeInput({ text: text.trim() });
             return { success: true };
         } catch (error) {
             console.error('Error sending text:', error);

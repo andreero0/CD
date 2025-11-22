@@ -27,6 +27,10 @@ let audioProcessor = null;
 let micAudioProcessor = null;
 // Removed unused global audioBuffer - each audio processor uses its own local buffer
 const SAMPLE_RATE = 24000;
+
+// Store active audio streams for Agent 1 session routing
+let activeMicStream = null;
+let activeSystemStream = null;
 const AUDIO_CHUNK_DURATION = 0.1; // seconds
 const BUFFER_SIZE = 4096; // Increased buffer size for smoother audio
 const MAX_AUDIO_BUFFER_SIZE = 100; // Maximum buffer size to prevent memory leaks (10 seconds of audio)
@@ -288,53 +292,56 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
 
     try {
         if (isMacOS) {
-            // On macOS, check for BlackHole first, then fallback to SystemAudioDump
-            console.log('Starting macOS capture...');
+            // On macOS, use new device enumeration and dual-stream setup
+            console.log('Starting macOS capture with device enumeration...');
             console.log('Audio mode:', audioMode);
 
             let audioCapturMethod = null;
 
             if (audioMode === 'speaker_only' || audioMode === 'both') {
-                // Try to detect BlackHole virtual audio device
-                console.log('Detecting BlackHole virtual audio device...');
-                const blackHoleInfo = await window.detectBlackHole();
+                // Try new dual-stream setup first (microphone + BlackHole)
+                console.log('[Audio Setup] Attempting dual-stream setup (mic + BlackHole)...');
 
-                if (blackHoleInfo.installed) {
-                    console.log('✅ BlackHole detected:', blackHoleInfo.deviceLabel);
-                    console.log('Using BlackHole for system audio capture (background-compatible)');
+                try {
+                    const { micStream, systemStream, devices } = await window.setupAudioStreams();
 
-                    // Use BlackHole - works in background, no -3821 errors
-                    try {
-                        const blackHoleStream = await navigator.mediaDevices.getUserMedia({
-                            audio: {
-                                deviceId: { exact: blackHoleInfo.deviceId },
-                                sampleRate: SAMPLE_RATE,
-                                channelCount: 1,
-                                echoCancellation: false,
-                                noiseSuppression: false,
-                                autoGainControl: false,
-                            }
-                        });
-
-                        console.log('BlackHole audio capture started successfully');
-                        setupBlackHoleSystemAudioProcessing(blackHoleStream); // Use dedicated BlackHole processing
+                    // Setup system audio (BlackHole) if available
+                    if (systemStream) {
+                        console.log('✅ BlackHole stream captured:', devices.systemAudio?.label);
+                        setupBlackHoleSystemAudioProcessing(systemStream);
                         audioCapturMethod = 'blackhole';
+
+                        // Store stream reference for Agent 1 session routing
+                        activeSystemStream = systemStream;
 
                         // Store for status display
                         window.audioSource = {
                             type: 'blackhole',
-                            label: blackHoleInfo.deviceLabel,
+                            label: devices.systemAudio?.label || 'BlackHole',
                             worksInBackground: true
                         };
-                    } catch (blackHoleError) {
-                        console.error('Failed to capture from BlackHole:', blackHoleError);
-                        console.log('Falling back to SystemAudioDump...');
+                    } else {
+                        console.log('❌ BlackHole stream not available - falling back to SystemAudioDump');
                     }
+
+                    // Setup microphone if available and in correct mode
+                    if (micStream && (audioMode === 'mic_only' || audioMode === 'both')) {
+                        console.log('✅ Microphone stream captured:', devices.microphone?.label);
+                        setupLinuxMicProcessing(micStream);
+
+                        // Store stream reference for Agent 1 session routing
+                        activeMicStream = micStream;
+                    } else if (audioMode === 'mic_only' || audioMode === 'both') {
+                        console.warn('❌ Microphone stream not available');
+                    }
+                } catch (setupError) {
+                    console.error('[Audio Setup] Dual-stream setup failed:', setupError);
+                    audioCapturMethod = null; // Will trigger fallback below
                 }
 
                 // Fallback to SystemAudioDump if BlackHole not available or failed
                 if (!audioCapturMethod) {
-                    console.log('BlackHole not detected or failed - using SystemAudioDump fallback');
+                    console.log('BlackHole not available - using SystemAudioDump fallback');
                     console.log('⚠️  SystemAudioDump may stop when app loses focus (error -3821)');
                     console.log('IMPORTANT: Screen Recording permission required for parent app');
                     console.log('  - If running via npm start: Enable Terminal.app in System Settings');
@@ -359,6 +366,51 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
                         label: 'SystemAudioDump (ScreenCaptureKit)',
                         worksInBackground: false
                     };
+
+                    // Setup microphone separately if needed (fallback path)
+                    if (audioMode === 'mic_only' || audioMode === 'both') {
+                        if (existingMicStream) {
+                            console.log('Using pre-approved microphone stream from wizard');
+                            setupLinuxMicProcessing(existingMicStream);
+                        } else {
+                            let micStream = null;
+                            try {
+                                micStream = await navigator.mediaDevices.getUserMedia({
+                                    audio: {
+                                        sampleRate: SAMPLE_RATE,
+                                        channelCount: 1,
+                                        echoCancellation: true,
+                                        noiseSuppression: true,
+                                        autoGainControl: true,
+                                    },
+                                    video: false,
+                                });
+                                console.log('macOS microphone capture started (fallback path)');
+                                setupLinuxMicProcessing(micStream);
+                            } catch (micError) {
+                                console.warn('Failed to get microphone access on macOS:', micError);
+                            }
+                        }
+                    }
+                }
+            } else if (audioMode === 'mic_only') {
+                // Mic-only mode: just setup microphone
+                if (existingMicStream) {
+                    console.log('Using pre-approved microphone stream from wizard');
+                    setupLinuxMicProcessing(existingMicStream);
+                } else {
+                    try {
+                        const { micStream, devices } = await window.setupAudioStreams();
+                        if (micStream) {
+                            console.log('✅ Microphone stream captured:', devices.microphone?.label);
+                            setupLinuxMicProcessing(micStream);
+
+                            // Store stream reference for Agent 1 session routing
+                            activeMicStream = micStream;
+                        }
+                    } catch (error) {
+                        console.error('Failed to setup microphone:', error);
+                    }
                 }
             }
 
@@ -378,33 +430,7 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
                 });
             }
 
-            console.log('macOS screen capture started - audio handled by SystemAudioDump');
-
-            if (audioMode === 'mic_only' || audioMode === 'both') {
-                // Use existing microphone stream from wizard, or request new one
-                if (existingMicStream) {
-                    console.log('Using pre-approved microphone stream from wizard');
-                    setupLinuxMicProcessing(existingMicStream);
-                } else {
-                    let micStream = null;
-                    try {
-                        micStream = await navigator.mediaDevices.getUserMedia({
-                            audio: {
-                                sampleRate: SAMPLE_RATE,
-                                channelCount: 1,
-                                echoCancellation: true,
-                                noiseSuppression: true,
-                                autoGainControl: true,
-                            },
-                            video: false,
-                        });
-                        console.log('macOS microphone capture started');
-                        setupLinuxMicProcessing(micStream);
-                    } catch (micError) {
-                        console.warn('Failed to get microphone access on macOS:', micError);
-                    }
-                }
-            }
+            console.log('macOS screen capture started');
         } else if (isLinux) {
             // Linux - use display media for screen capture and try to get system audio
             try {
@@ -1030,6 +1056,16 @@ function stopCapture() {
         mediaStream = null;
     }
 
+    // Stop active audio streams (new dual-stream cleanup)
+    if (activeMicStream || activeSystemStream) {
+        console.log('[Audio Cleanup] Stopping dual audio streams...');
+        if (window.stopAudioStreams) {
+            window.stopAudioStreams(activeMicStream, activeSystemStream);
+        }
+        activeMicStream = null;
+        activeSystemStream = null;
+    }
+
     // Stop macOS audio capture if running
     if (isMacOS) {
         ipcRenderer.invoke('stop-macos-audio').catch(err => {
@@ -1444,3 +1480,13 @@ const prism = {
 
 // Make it globally available
 window.prism = prism;
+
+// Expose audio stream references for Agent 1 session routing
+window.getActiveAudioStreams = function() {
+    return {
+        micStream: activeMicStream,
+        systemStream: activeSystemStream,
+        hasMic: !!activeMicStream,
+        hasSystem: !!activeSystemStream
+    };
+};
