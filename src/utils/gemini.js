@@ -57,6 +57,22 @@ const CONTEXT_TURN_HISTORY = 3;            // Last 3 turns
 const audioChunkQueue = [];
 const MAX_QUEUE_SIZE = 50; // Keep last 50 chunks (prevents memory leak)
 
+// Track recent speaker attributions for continuity detection
+const lastSpeakers = [];
+
+// Track queue size over time for stability analysis
+const queueSizeHistory = [];
+const MAX_HISTORY_SIZE = 20;
+
+// Validation metrics tracking
+const validationMetrics = {
+    totalAttributions: 0,
+    lowConfidenceCount: 0,
+    warningsByType: {},
+    averageConfidence: 0,
+    confidenceSum: 0
+};
+
 // Event-driven context injection tracking
 let previousSpeaker = null; // Track previous speaker for turn detection
 let speakerContextBuffer = '';
@@ -286,27 +302,198 @@ module.exports.formatSpeakerResults = formatSpeakerResults;
 module.exports.setCurrentProfile = setCurrentProfile;
 
 /**
+ * Removes stale chunks from the audio correlation queue
+ * Stale chunks are older than 5 seconds and likely represent drift
+ */
+function removeStaleChunks() {
+    const now = Date.now();
+    const MAX_AGE_MS = 5000; // 5 seconds
+
+    const initialLength = audioChunkQueue.length;
+    audioChunkQueue.splice(0, audioChunkQueue.length, ...audioChunkQueue.filter(chunk => {
+        const age = now - chunk.timestamp;
+        return age < MAX_AGE_MS;
+    }));
+
+    if (audioChunkQueue.length < initialLength && process.env.DEBUG_CORRELATION) {
+        console.log(`[Correlation] Removed ${initialLength - audioChunkQueue.length} stale chunks (>${MAX_AGE_MS}ms old)`);
+    }
+
+    // Track queue size for stability analysis
+    queueSizeHistory.push(audioChunkQueue.length);
+    if (queueSizeHistory.length > MAX_HISTORY_SIZE) {
+        queueSizeHistory.shift(); // Keep last 20 samples
+    }
+}
+
+/**
  * Determines speaker from audio correlation queue
  * Uses FIFO matching: first transcription matches first unresolved audio chunk
+ * Enhanced with timestamp validation, queue size monitoring, and speaker continuity
  */
 function determineSpeakerFromCorrelation() {
+    // Remove stale chunks first
+    removeStaleChunks();
+
+    // Warn if queue is growing too large (drift indicator)
+    if (audioChunkQueue.length > 10 && process.env.DEBUG_CORRELATION) {
+        console.warn(`[Correlation] Large queue size detected: ${audioChunkQueue.length} chunks. Possible desynchronization.`);
+    }
+
     // Try to match with oldest untracked chunk in queue
     if (audioChunkQueue.length > 0) {
-        const oldestChunk = audioChunkQueue.shift(); // Remove and return oldest
+        const oldestChunk = audioChunkQueue.shift();
         const speaker = oldestChunk.source === 'system' ? 'Interviewer' : 'You';
 
         if (process.env.DEBUG_CORRELATION) {
-            console.log(`[Speaker Attribution] Matched transcription to ${oldestChunk.source} audio (queue remaining: ${audioChunkQueue.length})`);
+            const age = Date.now() - oldestChunk.timestamp;
+            console.log(`[Speaker Attribution] Matched transcription to ${oldestChunk.source} audio (age: ${age}ms, queue: ${audioChunkQueue.length})`);
         }
+
+        // Track for continuity detection
+        lastSpeakers.push(speaker);
+        if (lastSpeakers.length > 5) lastSpeakers.shift();
 
         return speaker;
     }
 
-    // Fallback: if queue is empty, default to 'You' (mic)
+    // Improved fallback: use most recent speaker if available
+    if (lastSpeakers.length > 0) {
+        const fallbackSpeaker = lastSpeakers[lastSpeakers.length - 1];
+        if (process.env.DEBUG_CORRELATION) {
+            console.log(`[Speaker Attribution] Queue empty, using last speaker: ${fallbackSpeaker}`);
+        }
+        return fallbackSpeaker;
+    }
+
+    // Final fallback
     if (process.env.DEBUG_CORRELATION) {
-        console.log('[Speaker Attribution] Queue empty, defaulting to "You"');
+        console.log('[Speaker Attribution] Queue empty, no history, defaulting to "You"');
     }
     return 'You';
+}
+
+/**
+ * Calculate confidence score for correlation-based speaker attribution
+ * Returns 0.0 (no confidence) to 1.0 (high confidence)
+ */
+function calculateCorrelationConfidence() {
+    let score = 0.5; // Start with neutral confidence
+
+    // Factor 1: Queue size (larger queue = lower confidence due to potential drift)
+    if (audioChunkQueue.length === 0) {
+        score -= 0.3; // No queue = fallback mode = low confidence
+    } else if (audioChunkQueue.length > 10) {
+        score -= 0.2; // Large queue suggests desynchronization
+    } else if (audioChunkQueue.length < 3) {
+        score += 0.2; // Small queue = recent chunks = higher accuracy
+    }
+
+    // Factor 2: Chunk age (older chunks = lower confidence)
+    if (audioChunkQueue.length > 0) {
+        const oldestChunkAge = Date.now() - audioChunkQueue[0].timestamp;
+        if (oldestChunkAge > 3000) {
+            score -= 0.2; // Chunks older than 3s likely stale
+        } else if (oldestChunkAge < 500) {
+            score += 0.1; // Very recent = more reliable
+        }
+    }
+
+    // Factor 3: Speaker continuity (same speaker multiple times = higher confidence)
+    if (lastSpeakers.length >= 3) {
+        const recentSpeakers = lastSpeakers.slice(-3);
+        const allSame = recentSpeakers.every(s => s === recentSpeakers[0]);
+        if (allSame) {
+            score += 0.2; // Speaker continuity suggests stability
+        }
+    }
+
+    // Factor 4: Queue stability (consistent size = higher confidence)
+    if (queueSizeHistory.length >= 5) {
+        const avgSize = queueSizeHistory.reduce((a, b) => a + b, 0) / queueSizeHistory.length;
+        const variance = queueSizeHistory.reduce((sum, size) => sum + Math.pow(size - avgSize, 2), 0) / queueSizeHistory.length;
+        if (variance < 2) {
+            score += 0.1; // Stable queue = predictable correlation
+        }
+    }
+
+    // Clamp score to [0.0, 1.0]
+    return Math.max(0.0, Math.min(1.0, score));
+}
+
+/**
+ * Validate speaker attribution decision
+ * @param {string} attributedSpeaker - The speaker determined by correlation
+ * @param {string} transcript - The transcribed text
+ * @returns {object} Validation result with confidence and warnings
+ */
+function validateSpeakerAttribution(attributedSpeaker, transcript) {
+    const confidence = calculateCorrelationConfidence();
+    const warnings = [];
+
+    // Warning: Low confidence score
+    if (confidence < 0.3) {
+        warnings.push('LOW_CONFIDENCE: Correlation reliability is low');
+    }
+
+    // Warning: Queue drift detected
+    if (audioChunkQueue.length > 15) {
+        warnings.push('QUEUE_DRIFT: Audio chunk queue is unusually large');
+    }
+
+    // Warning: Rapid speaker changes (possible misattribution)
+    if (lastSpeakers.length >= 5) {
+        const recentChanges = lastSpeakers.slice(-5).reduce((changes, speaker, i, arr) => {
+            return i > 0 && speaker !== arr[i - 1] ? changes + 1 : changes;
+        }, 0);
+        if (recentChanges >= 3) {
+            warnings.push('RAPID_CHANGES: Frequent speaker switches detected (possible correlation error)');
+        }
+    }
+
+    // Warning: Empty queue fallback
+    if (audioChunkQueue.length === 0) {
+        warnings.push('FALLBACK_MODE: Using previous speaker (no audio chunks available)');
+    }
+
+    // Update metrics
+    validationMetrics.totalAttributions++;
+    validationMetrics.confidenceSum += confidence;
+    validationMetrics.averageConfidence = validationMetrics.confidenceSum / validationMetrics.totalAttributions;
+
+    if (confidence < 0.3) {
+        validationMetrics.lowConfidenceCount++;
+    }
+
+    // Track warnings by type
+    warnings.forEach(warning => {
+        const warningType = warning.split(':')[0];
+        validationMetrics.warningsByType[warningType] = (validationMetrics.warningsByType[warningType] || 0) + 1;
+    });
+
+    return {
+        attributedSpeaker,
+        confidence,
+        warnings,
+        timestamp: new Date().toISOString(),
+        queueSize: audioChunkQueue.length,
+        queueAge: audioChunkQueue.length > 0 ? Date.now() - audioChunkQueue[0].timestamp : null
+    };
+}
+
+/**
+ * Log validation metrics summary
+ */
+function logValidationMetrics() {
+    if (process.env.DEBUG_SPEAKER_ATTRIBUTION && validationMetrics.totalAttributions > 0) {
+        console.log('[Validation Metrics]', {
+            total: validationMetrics.totalAttributions,
+            lowConfidence: validationMetrics.lowConfidenceCount,
+            lowConfidenceRate: (validationMetrics.lowConfidenceCount / validationMetrics.totalAttributions * 100).toFixed(1) + '%',
+            avgConfidence: validationMetrics.averageConfidence.toFixed(2),
+            warnings: validationMetrics.warningsByType
+        });
+    }
 }
 
 /**
@@ -701,6 +888,11 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
     // Initialize new conversation session (only if not reconnecting)
     if (!isReconnection) {
         initializeNewSession();
+
+        // Start session logger for diagnostics
+        const { sessionLogger } = require('./sessionLogger');
+        sessionLogger.startSession();
+        console.log('[SessionLogger] Session logging initialized');
     }
 
         const session = await client.live.connect({
@@ -729,6 +921,37 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             // CORRELATION-BASED SPEAKER ATTRIBUTION
                             // Match transcription to audio chunk using FIFO queue
                             const speaker = determineSpeakerFromCorrelation();
+
+                            // VALIDATE SPEAKER ATTRIBUTION
+                            // Calculate confidence and detect potential correlation errors
+                            const validation = validateSpeakerAttribution(speaker, newTranscript);
+
+                            // Log validation results when debugging is enabled
+                            if (process.env.DEBUG_SPEAKER_ATTRIBUTION) {
+                                console.log('[DEBUG] Speaker attribution:', {
+                                    timestamp: new Date().toISOString(),
+                                    transcript: newTranscript.substring(0, 50) + '...',
+                                    attributedSpeaker: speaker,
+                                    correlationUsed: true,
+                                    queueRemainingSize: audioChunkQueue.length,
+                                    validation: {
+                                        confidence: validation.confidence.toFixed(2),
+                                        warnings: validation.warnings,
+                                        queueSize: validation.queueSize,
+                                        queueAge: validation.queueAge ? `${validation.queueAge}ms` : 'N/A'
+                                    }
+                                });
+
+                                // Log warnings if any
+                                if (validation.warnings.length > 0) {
+                                    console.warn('[Validation Warnings]', validation.warnings.join(', '));
+                                }
+
+                                // Periodically log validation metrics (every 50 attributions)
+                                if (validationMetrics.totalAttributions % 50 === 0) {
+                                    logValidationMetrics();
+                                }
+                            }
 
                             // COACHING FEEDBACK LOOP: When user speaks, compare against suggestion
                             if (speaker === 'You') {
@@ -1730,24 +1953,8 @@ function compareUserResponse(userText) {
  * Prevents queue buildup from stale entries
  */
 function cleanupExpiredCorrelations() {
-    const now = Date.now();
-    const initialSize = audioChunkQueue.length;
-
-    // Remove entries older than 10 seconds (matching FIFO expected latency)
-    const EXPIRY_TIME = 10000; // 10 seconds
-    const filtered = audioChunkQueue.filter(entry => {
-        const age = now - entry.timestamp;
-        return age < EXPIRY_TIME;
-    });
-
-    // Replace queue with filtered version
-    audioChunkQueue.length = 0;
-    audioChunkQueue.push(...filtered);
-
-    const removed = initialSize - audioChunkQueue.length;
-    if (removed > 0) {
-        console.log(`[Audio Correlation] Cleaned up ${removed} expired entries`);
-    }
+    // Use the centralized stale chunk removal function
+    removeStaleChunks();
 }
 
 // ============================================================================
@@ -1833,6 +2040,12 @@ async function processTranscriptFragment(transcriptFragment) {
 
         // 4. Get speaker from audio correlation
         const speaker = determineSpeakerFromCorrelation();
+
+        // 4a. Validate speaker attribution
+        const validation = validateSpeakerAttribution(speaker, normalizedText);
+        if (process.env.DEBUG_SPEAKER_ATTRIBUTION && validation.warnings.length > 0) {
+            console.warn('[Validation Warnings in processTranscriptFragment]', validation.warnings.join(', '));
+        }
 
         // 5. Check for interruption (if user speaking while AI generating)
         if (speaker === 'You' && shouldInterruptAI()) {
@@ -1978,4 +2191,24 @@ module.exports = {
     // Task 15: Main Transcript Flow
     processTranscriptFragment,
     flushBufferToUI,
+    // Speaker Attribution Enhancements (for testing)
+    removeStaleChunks,
+    determineSpeakerFromCorrelation,
+    calculateCorrelationConfidence,
+    validateSpeakerAttribution,
+    // Test utilities to access internal state
+    _getAudioChunkQueue: () => audioChunkQueue,
+    _getLastSpeakers: () => lastSpeakers,
+    _getQueueSizeHistory: () => queueSizeHistory,
+    _getValidationMetrics: () => validationMetrics,
+    _resetTestState: () => {
+        audioChunkQueue.length = 0;
+        lastSpeakers.length = 0;
+        queueSizeHistory.length = 0;
+        validationMetrics.totalAttributions = 0;
+        validationMetrics.lowConfidenceCount = 0;
+        validationMetrics.warningsByType = {};
+        validationMetrics.averageConfidence = 0;
+        validationMetrics.confidenceSum = 0;
+    },
 };
