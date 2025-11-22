@@ -4,19 +4,33 @@ const { app } = require('electron');
 
 class SessionLogger {
     constructor() {
-        this.logDir = path.join(app.getPath('userData'), 'session-logs');
+        this.logDir = null; // Lazy initialization
         this.currentLogFile = null;
         this.currentSession = null;
         this.logStream = null;
+        this.hasCleanedUp = false; // Track if cleanup has run
+    }
 
-        // Ensure log directory exists
-        this.ensureLogDirectory();
+    // Lazy initialize log directory (called when first needed)
+    getLogDirectory() {
+        if (!this.logDir) {
+            try {
+                this.logDir = path.join(app.getPath('userData'), 'session-logs');
+                this.ensureLogDirectory();
+            } catch (error) {
+                console.error('[SessionLogger] Error getting log directory:', error.message);
+                // Fallback to temp directory
+                this.logDir = path.join(require('os').tmpdir(), 'prism-session-logs');
+                this.ensureLogDirectory();
+            }
+        }
+        return this.logDir;
     }
 
     ensureLogDirectory() {
-        if (!fs.existsSync(this.logDir)) {
+        if (this.logDir && !fs.existsSync(this.logDir)) {
             fs.mkdirSync(this.logDir, { recursive: true });
-            console.log('Created session logs directory:', this.logDir);
+            console.log('[SessionLogger] Created session logs directory:', this.logDir);
         }
     }
 
@@ -24,9 +38,18 @@ class SessionLogger {
         // Close previous session if exists
         this.endSession();
 
+        // Ensure log directory is initialized
+        const logDir = this.getLogDirectory();
+
+        // Cleanup old logs (only on first session start when app is ready)
+        if (!this.hasCleanedUp) {
+            this.cleanupOldLogs();
+            this.hasCleanedUp = true;
+        }
+
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         this.currentSession = `session_${timestamp}`;
-        this.currentLogFile = path.join(this.logDir, `${this.currentSession}.log`);
+        this.currentLogFile = path.join(logDir, `${this.currentSession}.log`);
 
         // Create write stream
         this.logStream = fs.createWriteStream(this.currentLogFile, { flags: 'a' });
@@ -114,19 +137,18 @@ class SessionLogger {
         return this.currentLogFile;
     }
 
-    getLogDirectory() {
-        return this.logDir;
-    }
-
     // Cleanup old log files (keep last 50 sessions)
     cleanupOldLogs() {
+        const logDir = this.getLogDirectory();
+        if (!logDir) return;
+
         try {
-            const files = fs.readdirSync(this.logDir)
+            const files = fs.readdirSync(logDir)
                 .filter(file => file.startsWith('session_') && file.endsWith('.log'))
                 .map(file => ({
                     name: file,
-                    path: path.join(this.logDir, file),
-                    mtime: fs.statSync(path.join(this.logDir, file)).mtime.getTime()
+                    path: path.join(logDir, file),
+                    mtime: fs.statSync(path.join(logDir, file)).mtime.getTime()
                 }))
                 .sort((a, b) => b.mtime - a.mtime);
 
@@ -152,14 +174,17 @@ class SessionLogger {
 
     // Get list of recent log files
     getRecentLogs(count = 10) {
+        const logDir = this.getLogDirectory();
+        if (!logDir) return [];
+
         try {
-            const files = fs.readdirSync(this.logDir)
+            const files = fs.readdirSync(logDir)
                 .filter(file => file.startsWith('session_') && file.endsWith('.log'))
                 .map(file => ({
                     name: file,
-                    path: path.join(this.logDir, file),
-                    size: fs.statSync(path.join(this.logDir, file)).size,
-                    mtime: fs.statSync(path.join(this.logDir, file)).mtime
+                    path: path.join(logDir, file),
+                    size: fs.statSync(path.join(logDir, file)).size,
+                    mtime: fs.statSync(path.join(logDir, file)).mtime
                 }))
                 .sort((a, b) => b.mtime.getTime() - a.mtime.getTime())
                 .slice(0, count);
@@ -174,8 +199,5 @@ class SessionLogger {
 
 // Create singleton instance
 const sessionLogger = new SessionLogger();
-
-// Cleanup old logs on startup
-sessionLogger.cleanupOldLogs();
 
 module.exports = sessionLogger;
