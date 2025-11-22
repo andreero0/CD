@@ -612,10 +612,9 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             // Strategy: Buffer ALL speech regardless of speaker, send only on punctuation or timeout
                             // Ignore speaker changes since Gemini's word-level attribution is unreliable
 
-                            // Check timeout BEFORE updating timestamp
-                            const now = Date.now();
+                            // Reuse 'now' from context injection above (line 527)
                             const timeSinceLastSpeech = now - lastUserSpeechTime;
-                            const timeoutReached = timeSinceLastSpeech > USER_SPEECH_TIMEOUT;
+                            const bufferTimeoutReached = timeSinceLastSpeech > USER_SPEECH_TIMEOUT;
 
                             // Accumulate ALL speech fragments (both user and interviewer)
                             userSpeechBuffer += newTranscript + ' ';
@@ -626,7 +625,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             const hasSentenceEnding = /[.!?]$/.test(trimmedBuffer);
 
                             // Send ONLY on: sentence ending OR timeout (ignore unreliable speaker changes)
-                            if (hasSentenceEnding || timeoutReached) {
+                            if (hasSentenceEnding || bufferTimeoutReached) {
                                 const reason = hasSentenceEnding ? 'sentence complete' : 'timeout';
                                 console.log(`[Transcript Buffer] Sending buffered speech (${reason}, ${trimmedBuffer.split(' ').length} words): "${trimmedBuffer.substring(0, 50)}..."`);
                                 sendToRenderer('transcript-update', { text: trimmedBuffer, speaker: speaker });
