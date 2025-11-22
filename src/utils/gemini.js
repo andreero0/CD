@@ -527,8 +527,8 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             const now = Date.now();
                             const timeSinceLastContext = now - lastContextSentTime;
                             const speakerChanged = previousSpeaker !== null && previousSpeaker !== speaker;
-                            const timeoutReached = timeSinceLastContext >= CONTEXT_SEND_FALLBACK_TIMEOUT;
-                            const shouldSendContext = speakerChanged || timeoutReached;
+                            const contextTimeoutReached = timeSinceLastContext >= CONTEXT_SEND_FALLBACK_TIMEOUT;
+                            const shouldSendContext = speakerChanged || contextTimeoutReached;
 
                             if (shouldSendContext && speakerContextBuffer.trim()) {
                                 const triggerReason = speakerChanged ? 'speaker_turn' : 'timeout_fallback';
@@ -614,7 +614,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
 
                             // Check timeout BEFORE updating timestamp (reuse now from context injection)
                             const timeSinceLastSpeech = Date.now() - lastUserSpeechTime;
-                            const timeoutReached = timeSinceLastSpeech > USER_SPEECH_TIMEOUT;
+                            const speechTimeoutReached = timeSinceLastSpeech > USER_SPEECH_TIMEOUT;
 
                             // Accumulate ALL speech fragments (both user and interviewer)
                             userSpeechBuffer += newTranscript + ' ';
@@ -625,7 +625,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             const hasSentenceEnding = /[.!?]$/.test(trimmedBuffer);
 
                             // Send ONLY on: sentence ending OR timeout (ignore unreliable speaker changes)
-                            if (hasSentenceEnding || timeoutReached) {
+                            if (hasSentenceEnding || speechTimeoutReached) {
                                 const reason = hasSentenceEnding ? 'sentence complete' : 'timeout';
                                 console.log(`[Transcript Buffer] Sending buffered speech (${reason}, ${trimmedBuffer.split(' ').length} words): "${trimmedBuffer.substring(0, 50)}..."`);
                                 sendToRenderer('transcript-update', { text: trimmedBuffer, speaker: speaker });
