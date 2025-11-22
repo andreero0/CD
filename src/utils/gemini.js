@@ -936,89 +936,105 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                         }
 
                         if (newTranscript && newTranscript.trim()) {
-                            // CORRELATION-BASED SPEAKER ATTRIBUTION
-                            // Match transcription to audio chunk using FIFO queue
-                            const speaker = determineSpeakerFromCorrelation();
+                            // TRANSCRIPT BUFFERING: Accumulate fragments before processing
+                            // This prevents syllable-by-syllable speaker attribution
+                            userSpeechBuffer += newTranscript + ' ';
 
-                            // VALIDATE SPEAKER ATTRIBUTION
-                            // Calculate confidence and detect potential correlation errors
-                            const validation = validateSpeakerAttribution(speaker, newTranscript);
-
-                            // Log validation results when debugging is enabled
-                            if (process.env.DEBUG_SPEAKER_ATTRIBUTION) {
-                                const { sessionLogger } = require('./sessionLogger');
-                                const debugInfo = {
-                                    timestamp: new Date().toISOString(),
-                                    transcript: newTranscript.substring(0, 50) + '...',
-                                    attributedSpeaker: speaker,
-                                    correlationUsed: true,
-                                    queueRemainingSize: audioChunkQueue.length,
-                                    validation: {
-                                        confidence: validation.confidence.toFixed(2),
-                                        warnings: validation.warnings,
-                                        queueSize: validation.queueSize,
-                                        queueAge: validation.queueAge ? `${validation.queueAge}ms` : 'N/A'
-                                    }
-                                };
-
-                                // Log to both console and file
-                                console.log('[DEBUG] Speaker attribution:', debugInfo);
-                                sessionLogger.log('SpeakerAttribution', JSON.stringify(debugInfo, null, 2));
-
-                                // Log warnings if any
-                                if (validation.warnings.length > 0) {
-                                    const warningMsg = '[Validation Warnings] ' + validation.warnings.join(', ');
-                                    console.warn(warningMsg);
-                                    sessionLogger.log('ValidationWarning', warningMsg);
-                                }
-
-                                // Periodically log validation metrics (every 50 attributions)
-                                if (validationMetrics.totalAttributions % 50 === 0) {
-                                    logValidationMetrics();
-                                }
-                            }
-
-                            // COACHING FEEDBACK LOOP: When user speaks, compare against suggestion
-                            if (speaker === 'You') {
-                                const comparison = conversationState.compareResponse(newTranscript);
-                                if (comparison && comparison.hasSuggestion) {
-                                    console.log(`[Coaching] User adherence to suggestion: ${comparison.adherence}% - ${comparison.analysis}`);
-                                }
-                            }
-
-                            // Accumulate transcript WITH speaker labels for AI context
-                            // Format: "[Interviewer]: question [You]: answer"
-                            const formattedChunk = `[${speaker}]: ${newTranscript} `;
-                            currentTranscription += formattedChunk;
-                            speakerContextBuffer += formattedChunk;
-
-                            // EVENT-DRIVEN CONTEXT INJECTION
-                            // Send context on speaker turn boundaries (primary) or 3s timeout (fallback)
+                            // Update last speech time for timeout tracking
                             const now = Date.now();
-                            const timeSinceLastContext = now - lastContextSentTime;
-                            const speakerChanged = previousSpeaker !== null && previousSpeaker !== speaker;
-                            const contextTimeoutReached = timeSinceLastContext >= CONTEXT_SEND_FALLBACK_TIMEOUT;
-                            const shouldSendContext = speakerChanged || contextTimeoutReached;
+                            const timeSinceLastSpeech = now - lastUserSpeechTime;
+                            lastUserSpeechTime = now;
 
-                            if (shouldSendContext && speakerContextBuffer.trim()) {
-                                const triggerReason = speakerChanged ? 'speaker_turn' : 'timeout_fallback';
-                                console.log(`[Context Injection] Sending (trigger: ${triggerReason})`);
-                                // Build context message with suggestion tracking
-                                let contextMessage = `<context>\n${speakerContextBuffer.trim()}\n</context>`;
+                            // Check if we should flush the buffer
+                            const trimmedBuffer = userSpeechBuffer.trim();
+                            const wordCount = trimmedBuffer.split(/\s+/).length;
+                            const hasEndPunctuation = /[.!?]$/.test(trimmedBuffer);
+                            const timeoutReached = timeSinceLastSpeech >= USER_SPEECH_TIMEOUT;
+                            const shouldFlush = wordCount >= 5 || hasEndPunctuation || timeoutReached;
 
-                                // COACHING FEEDBACK LOOP: Add last suggestion to context so AI remembers what it suggested
-                                const currentSuggestion = conversationState.getCurrentSuggestion();
-                                if (currentSuggestion) {
-                                    contextMessage += `\n<lastSuggestion>\nYou suggested: "${currentSuggestion.text}"\nTurn ID: ${currentSuggestion.turnId}\nTime: ${new Date(currentSuggestion.timestamp).toISOString()}\n</lastSuggestion>`;
+                            if (shouldFlush && trimmedBuffer) {
+                                const reason = hasEndPunctuation ? 'sentence complete' : timeoutReached ? 'timeout' : `${wordCount} words`;
+                                console.log(`[Transcript Buffer] Sending buffered speech (${reason}, ${wordCount} words): "${trimmedBuffer.substring(0, 50)}..."`);
+
+                                // NOW do speaker attribution on the complete buffered phrase
+                                const speaker = determineSpeakerFromCorrelation();
+
+                                // VALIDATE SPEAKER ATTRIBUTION
+                                const validation = validateSpeakerAttribution(speaker, trimmedBuffer);
+
+                                // Log validation results when debugging is enabled
+                                if (process.env.DEBUG_SPEAKER_ATTRIBUTION) {
+                                    const { sessionLogger } = require('./sessionLogger');
+                                    const debugInfo = {
+                                        timestamp: new Date().toISOString(),
+                                        transcript: trimmedBuffer.substring(0, 50) + '...',
+                                        attributedSpeaker: speaker,
+                                        correlationUsed: true,
+                                        queueRemainingSize: audioChunkQueue.length,
+                                        validation: {
+                                            confidence: validation.confidence.toFixed(2),
+                                            warnings: validation.warnings,
+                                            queueSize: validation.queueSize,
+                                            queueAge: validation.queueAge ? `${validation.queueAge}ms` : 'N/A'
+                                        }
+                                    };
+
+                                    // Log to both console and file
+                                    console.log('[DEBUG] Speaker attribution:', debugInfo);
+                                    sessionLogger.log('SpeakerAttribution', JSON.stringify(debugInfo, null, 2));
+
+                                    // Log warnings if any
+                                    if (validation.warnings.length > 0) {
+                                        const warningMsg = '[Validation Warnings] ' + validation.warnings.join(', ');
+                                        console.warn(warningMsg);
+                                        sessionLogger.log('ValidationWarning', warningMsg);
+                                    }
+
+                                    // Periodically log validation metrics (every 50 attributions)
+                                    if (validationMetrics.totalAttributions % 50 === 0) {
+                                        logValidationMetrics();
+                                    }
                                 }
+
+                                // COACHING FEEDBACK LOOP: When user speaks, compare against suggestion
+                                if (speaker === 'You') {
+                                    const comparison = conversationState.compareResponse(trimmedBuffer);
+                                    if (comparison && comparison.hasSuggestion) {
+                                        console.log(`[Coaching] User adherence to suggestion: ${comparison.adherence}% - ${comparison.analysis}`);
+                                    }
+                                }
+
+                                // Accumulate transcript WITH speaker labels for AI context
+                                const formattedChunk = `[${speaker}]: ${trimmedBuffer} `;
+                                currentTranscription += formattedChunk;
+                                speakerContextBuffer += formattedChunk;
+
+                                // EVENT-DRIVEN CONTEXT INJECTION
+                                // Send context on speaker turn boundaries (primary) or 3s timeout (fallback)
+                                const timeSinceLastContext = now - lastContextSentTime;
+                                const speakerChanged = previousSpeaker !== null && previousSpeaker !== speaker;
+                                const contextTimeoutReached = timeSinceLastContext >= CONTEXT_SEND_FALLBACK_TIMEOUT;
+                                const shouldSendContext = speakerChanged || contextTimeoutReached;
+
+                                if (shouldSendContext && speakerContextBuffer.trim()) {
+                                    const triggerReason = speakerChanged ? 'speaker_turn' : 'timeout_fallback';
+                                    console.log(`[Context Injection] Sending (trigger: ${triggerReason})`);
+                                    // Build context message with suggestion tracking
+                                    let contextMessage = `<context>\n${speakerContextBuffer.trim()}\n</context>`;
+
+                                    // COACHING FEEDBACK LOOP: Add last suggestion to context so AI remembers what it suggested
+                                    const currentSuggestion = conversationState.getCurrentSuggestion();
+                                    if (currentSuggestion) {
+                                        contextMessage += `\n<lastSuggestion>\nYou suggested: "${currentSuggestion.text}"\nTurn ID: ${currentSuggestion.turnId}\nTime: ${new Date(currentSuggestion.timestamp).toISOString()}\n</lastSuggestion>`;
+                                    }
 
                                 // RAG INTEGRATION: When interviewer asks a question, retrieve relevant past context
                                 // Note: We'll send RAG context separately after retrieval to avoid blocking
-                                if (speaker === 'Interviewer' && newTranscript && newTranscript.trim().length > 10) {
+                                if (speaker === 'Interviewer' && trimmedBuffer && trimmedBuffer.trim().length > 10) {
                                     (async () => {
                                         try {
                                             console.log('[RAG] Retrieving context for interviewer question...');
-                                            const ragResult = await retrieveContext(newTranscript, currentSessionId, {
+                                            const ragResult = await retrieveContext(trimmedBuffer, currentSessionId, {
                                                 topK: 3,              // Get top 3 most relevant chunks
                                                 minScore: 0.6,        // Minimum similarity threshold
                                                 maxTokens: 400,       // Max tokens for RAG context
@@ -1078,38 +1094,20 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                                 console.log('[Context Injection] Sent to AI with suggestion tracking (trigger: ' + triggerReason + ')');
                             }
 
-                            // SMART TRANSCRIPT BUFFERING: Prevent word-by-word fragmentation
-                            // Strategy: Buffer ALL speech regardless of speaker, send only on punctuation or timeout
-                            // Ignore speaker changes since Gemini's word-level attribution is unreliable
-
-                            // Check timeout BEFORE updating timestamp (reuse now from context injection)
-                            const timeSinceLastSpeech = Date.now() - lastUserSpeechTime;
-                            const speechTimeoutReached = timeSinceLastSpeech > USER_SPEECH_TIMEOUT;
-
-                            // Accumulate ALL speech fragments (both user and interviewer)
-                            userSpeechBuffer += newTranscript + ' ';
-                            lastUserSpeechTime = Date.now();
-
-                            // Check if we should send the buffered speech
-                            const trimmedBuffer = userSpeechBuffer.trim();
-                            const hasSentenceEnding = /[.!?]$/.test(trimmedBuffer);
-
-                            // Send ONLY on: sentence ending OR timeout (ignore unreliable speaker changes)
-                            if (hasSentenceEnding || speechTimeoutReached) {
-                                const reason = hasSentenceEnding ? 'sentence complete' : 'timeout';
-                                console.log(`[Transcript Buffer] Sending buffered speech (${reason}, ${trimmedBuffer.split(' ').length} words): "${trimmedBuffer.substring(0, 50)}..."`);
+                                // Send buffered transcript to UI
                                 sendToRenderer('transcript-update', { text: trimmedBuffer, speaker: speaker });
-                                userSpeechBuffer = ''; // Clear buffer after sending
+
+                                // Clear buffer after processing
+                                userSpeechBuffer = '';
+
+                                // Update previous speaker for turn tracking
+                                previousSpeaker = speaker;
                             } else {
-                                // Still buffering - log progress every 5 words
-                                const wordCount = trimmedBuffer.split(' ').length;
-                                if (wordCount % 5 === 0) {
+                                // Still buffering - log progress
+                                if (wordCount >= 5 && wordCount % 5 === 0) {
                                     console.log(`[Transcript Buffer] Buffering... (${wordCount} words, ${(USER_SPEECH_TIMEOUT - timeSinceLastSpeech) / 1000}s until timeout)`);
                                 }
                             }
-
-                            // Update previous speaker for context tracking
-                            previousSpeaker = speaker;
                         }
                     }
 
