@@ -41,7 +41,12 @@ let lastContextSentTime = Date.now();
 // TRANSCRIPT BUFFERING: Prevent word-by-word fragmentation
 let userSpeechBuffer = ''; // Buffer to accumulate user speech
 let lastUserSpeechTime = Date.now(); // Track when last user speech arrived
-const USER_SPEECH_TIMEOUT = 2000; // 2 seconds of silence = sentence complete
+let lastSpeaker = null; // Track speaker for adaptive timeouts
+
+// ADAPTIVE TIMEOUTS: Different timeouts for different scenarios
+const USER_SPEECH_TIMEOUT = 3500; // 3.5s for user (more thinking time)
+const INTERVIEWER_SPEECH_TIMEOUT = 2000; // 2s for interviewer (quicker responses)
+const TRAILING_SILENCE_TIMEOUT = 1500; // 1.5s after punctuation (natural pause)
 
 function setCurrentProfile(profile) {
     currentProfile = profile || 'interview';
@@ -172,6 +177,7 @@ async function initializeNewSession() {
     lastContextSentTime = Date.now();
     userSpeechBuffer = '';
     lastUserSpeechTime = Date.now();
+    lastSpeaker = null;
     clearCorrelationData();
     audioChunkQueue.length = 0;
     previousSpeaker = null;
@@ -609,32 +615,55 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             }
 
                             // SMART TRANSCRIPT BUFFERING: Prevent word-by-word fragmentation
-                            // Strategy: Buffer ALL speech regardless of speaker, send only on punctuation or timeout
-                            // Ignore speaker changes since Gemini's word-level attribution is unreliable
+                            // Strategy: Buffer ALL speech with adaptive timeouts based on context
+                            // - User gets more time to think (3.5s)
+                            // - Interviewer gets standard timeout (2s)
+                            // - After punctuation, use shorter trailing silence (1.5s)
 
-                            // Check timeout BEFORE updating timestamp (reuse now from context injection)
-                            const timeSinceLastSpeech = Date.now() - lastUserSpeechTime;
-                            const speechTimeoutReached = timeSinceLastSpeech > USER_SPEECH_TIMEOUT;
-
-                            // Accumulate ALL speech fragments (both user and interviewer)
+                            // Accumulate speech fragments
                             userSpeechBuffer += newTranscript + ' ';
-                            lastUserSpeechTime = Date.now();
+
+                            // Track speaker for adaptive timeouts
+                            lastSpeaker = speaker;
 
                             // Check if we should send the buffered speech
                             const trimmedBuffer = userSpeechBuffer.trim();
                             const hasSentenceEnding = /[.!?]$/.test(trimmedBuffer);
 
-                            // Send ONLY on: sentence ending OR timeout (ignore unreliable speaker changes)
+                            // ADAPTIVE TIMEOUT: Choose based on context
+                            let adaptiveTimeout;
+                            if (hasSentenceEnding) {
+                                // After punctuation, use shorter timeout (natural pause)
+                                adaptiveTimeout = TRAILING_SILENCE_TIMEOUT;
+                            } else if (speaker === 'You') {
+                                // Give user more time to think
+                                adaptiveTimeout = USER_SPEECH_TIMEOUT;
+                            } else {
+                                // Interviewer gets standard timeout
+                                adaptiveTimeout = INTERVIEWER_SPEECH_TIMEOUT;
+                            }
+
+                            // Check if timeout reached
+                            const timeSinceLastSpeech = Date.now() - lastUserSpeechTime;
+                            const speechTimeoutReached = timeSinceLastSpeech > adaptiveTimeout;
+
+                            // Update timestamp after checking
+                            lastUserSpeechTime = Date.now();
+
+                            // Send ONLY on: sentence ending OR adaptive timeout
                             if (hasSentenceEnding || speechTimeoutReached) {
-                                const reason = hasSentenceEnding ? 'sentence complete' : 'timeout';
-                                console.log(`[Transcript Buffer] Sending buffered speech (${reason}, ${trimmedBuffer.split(' ').length} words): "${trimmedBuffer.substring(0, 50)}..."`);
+                                const reason = hasSentenceEnding ? 'sentence complete' :
+                                             speaker === 'You' ? 'user thinking timeout (3.5s)' :
+                                             'interviewer timeout (2s)';
+                                console.log(`[Transcript Buffer] Sending buffered speech (${reason}, ${trimmedBuffer.split(' ').length} words, ${speaker}): "${trimmedBuffer.substring(0, 50)}..."`);
                                 sendToRenderer('transcript-update', { text: trimmedBuffer, speaker: speaker });
                                 userSpeechBuffer = ''; // Clear buffer after sending
                             } else {
                                 // Still buffering - log progress every 5 words
                                 const wordCount = trimmedBuffer.split(' ').length;
+                                const timeRemaining = (adaptiveTimeout - timeSinceLastSpeech) / 1000;
                                 if (wordCount % 5 === 0) {
-                                    console.log(`[Transcript Buffer] Buffering... (${wordCount} words, ${(USER_SPEECH_TIMEOUT - timeSinceLastSpeech) / 1000}s until timeout)`);
+                                    console.log(`[Transcript Buffer] Buffering... (${wordCount} words, ${timeRemaining.toFixed(1)}s until timeout, speaker: ${speaker})`);
                                 }
                             }
 
