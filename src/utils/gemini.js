@@ -7,6 +7,7 @@ const { processNewTurn, initializeRAG, retrieveContext } = require('./ragControl
 const { conversationState, STATES } = require('./conversationState');
 const { formatAllDocuments, clearDocumentCache } = require('./documentRetriever');
 const { generateCorrelationId, trackAudioChunk, resolveCorrelationId, clearAll: clearCorrelationData } = require('./audioCorrelation');
+const sessionLogger = require('./sessionLogger');
 
 // Conversation tracking variables
 let currentSessionId = null;
@@ -177,12 +178,18 @@ async function initializeNewSession() {
     previousSpeaker = null;
     console.log('New conversation session started:', currentSessionId);
 
+    // Start session logging
+    const logFile = sessionLogger.startNewSession();
+    sessionLogger.log('Session', `New conversation session started: ${currentSessionId}`);
+    sessionLogger.log('Session', `Log file: ${logFile}`);
+
     // Reset conversation state machine for new session
     conversationState.reset();
 
     // Initialize RAG system (async, non-blocking)
     initializeRAG().catch(error => {
         console.error('Error initializing RAG system:', error);
+        sessionLogger.error('RAG', error);
     });
 }
 
@@ -605,7 +612,9 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                                 // Reset buffer and timer
                                 speakerContextBuffer = '';
                                 lastContextSentTime = now;
-                                console.log('[Context Injection] Sent to AI with suggestion tracking (trigger: ' + triggerReason + ')');
+
+                                // Log to session file AND console
+                                sessionLogger.logContextInjection(triggerReason);
                             }
 
                             // SMART TRANSCRIPT BUFFERING: Prevent word-by-word fragmentation
@@ -627,7 +636,11 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             // Send ONLY on: sentence ending OR timeout (ignore unreliable speaker changes)
                             if (hasSentenceEnding || bufferTimeoutReached) {
                                 const reason = hasSentenceEnding ? 'sentence complete' : 'timeout';
-                                console.log(`[Transcript Buffer] Sending buffered speech (${reason}, ${trimmedBuffer.split(' ').length} words): "${trimmedBuffer.substring(0, 50)}..."`);
+                                const wordCount = trimmedBuffer.split(' ').length;
+                                const preview = trimmedBuffer.substring(0, 50) + (trimmedBuffer.length > 50 ? '...' : '');
+
+                                // Log to session file AND console
+                                sessionLogger.logTranscriptBuffer(reason, wordCount, preview);
 
                                 // Format with speaker label for direct display (eliminates frontend re-buffering)
                                 const formattedTranscript = `[${speaker}]: ${trimmedBuffer}`;
@@ -637,7 +650,8 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                                 // Still buffering - log progress every 5 words
                                 const wordCount = trimmedBuffer.split(' ').length;
                                 if (wordCount % 5 === 0) {
-                                    console.log(`[Transcript Buffer] Buffering... (${wordCount} words, ${(USER_SPEECH_TIMEOUT - timeSinceLastSpeech) / 1000}s until timeout)`);
+                                    const timeRemaining = ((USER_SPEECH_TIMEOUT - timeSinceLastSpeech) / 1000).toFixed(1);
+                                    sessionLogger.log('Transcript Buffer', `Buffering... (${wordCount} words, ${timeRemaining}s until timeout)`);
                                 }
                             }
 
@@ -650,7 +664,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     if (message.serverContent?.modelTurn?.parts) {
                         // DEFENSIVE: Clear buffer if this is a new turn (previous generation was complete)
                         if (isGenerationComplete) {
-                            console.log('[AI Response] Starting new response, clearing messageBuffer');
+                            sessionLogger.logAIResponse('Starting new response', 'clearing messageBuffer');
                             messageBuffer = '';
                             isGenerationComplete = false;
                         }
@@ -666,13 +680,14 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
 
                     // Handle response interruption (user interrupted or API cut off)
                     if (message.serverContent?.interrupted) {
-                        console.log('[AI Response] Response interrupted, clearing messageBuffer');
+                        sessionLogger.logAIResponse('Response interrupted', 'clearing messageBuffer');
                         messageBuffer = '';
                         isGenerationComplete = true;
                     }
 
                     if (message.serverContent?.generationComplete) {
-                        console.log('[AI Response] Generation complete, final messageBuffer:', messageBuffer.substring(0, 50) + '...');
+                        const preview = messageBuffer.substring(0, 50) + (messageBuffer.length > 50 ? '...' : '');
+                        sessionLogger.logAIResponse('Generation complete', preview);
                         sendToRenderer('update-response', messageBuffer);
 
                         // COACHING FEEDBACK LOOP: Track AI suggestion when generation is complete
@@ -689,7 +704,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                         // DEFENSIVE: Clear buffer and mark as complete
                         messageBuffer = '';
                         isGenerationComplete = true; // Mark generation as complete
-                        console.log('[AI Response] messageBuffer cleared, ready for next response');
+                        sessionLogger.log('AI Response', 'messageBuffer cleared, ready for next response');
                     }
 
                     if (message.serverContent?.turnComplete) {
@@ -1257,6 +1272,8 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
 
     ipcMain.handle('close-session', async event => {
         try {
+            sessionLogger.log('Session', 'Closing session...');
+
             stopMacOSAudioCapture();
 
             // SECURITY FIX: Clear sensitive data from memory
@@ -1268,9 +1285,14 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
                 geminiSessionRef.current = null;
             }
 
+            // End session logging
+            sessionLogger.endSession();
+
             return { success: true };
         } catch (error) {
             console.error('Error closing session:', error);
+            sessionLogger.error('Session', error);
+            sessionLogger.endSession();
             return { success: false, error: error.message };
         }
     });
@@ -1303,6 +1325,40 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             return { success: true };
         } catch (error) {
             console.error('Error updating Google Search setting:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Session logging handlers
+    ipcMain.handle('get-current-log-file', async event => {
+        try {
+            const logFile = sessionLogger.getCurrentLogFile();
+            const logDir = sessionLogger.getLogDirectory();
+            return { success: true, logFile, logDir };
+        } catch (error) {
+            console.error('Error getting current log file:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('get-recent-logs', async (event, count = 10) => {
+        try {
+            const logs = sessionLogger.getRecentLogs(count);
+            return { success: true, logs };
+        } catch (error) {
+            console.error('Error getting recent logs:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('open-log-directory', async event => {
+        try {
+            const { shell } = require('electron');
+            const logDir = sessionLogger.getLogDirectory();
+            await shell.openPath(logDir);
+            return { success: true };
+        } catch (error) {
+            console.error('Error opening log directory:', error);
             return { success: false, error: error.message };
         }
     });
