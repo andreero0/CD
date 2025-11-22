@@ -948,9 +948,11 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             // Check if we should flush the buffer
                             const trimmedBuffer = userSpeechBuffer.trim();
                             const wordCount = trimmedBuffer.split(/\s+/).length;
-                            const hasEndPunctuation = /[.!?]$/.test(trimmedBuffer);
+                            // Ignore ellipsis (...) - only flush on real sentence endings (. ! ?)
+                            const hasEndPunctuation = /[.!?]$/.test(trimmedBuffer) && !/\.\.\.+$/.test(trimmedBuffer);
                             const timeoutReached = timeSinceLastSpeech >= USER_SPEECH_TIMEOUT;
-                            const shouldFlush = wordCount >= 5 || hasEndPunctuation || timeoutReached;
+                            // Increased word threshold from 5 to 12 for better phrase accumulation
+                            const shouldFlush = wordCount >= 12 || hasEndPunctuation || timeoutReached;
 
                             if (shouldFlush && trimmedBuffer) {
                                 const reason = hasEndPunctuation ? 'sentence complete' : timeoutReached ? 'timeout' : `${wordCount} words`;
