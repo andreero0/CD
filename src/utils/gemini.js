@@ -88,7 +88,7 @@ let turnHistory = [];  // Array of { speaker, text, timestamp }
 let userSpeechBuffer = ''; // Buffer to accumulate user speech
 let lastUserSpeechTime = Date.now(); // Track when last user speech arrived
 let bufferStartTime = Date.now(); // Track when buffer started accumulating
-const USER_SPEECH_TIMEOUT = 2000; // 2 seconds of silence = sentence complete
+const USER_SPEECH_TIMEOUT = 4000; // 4 seconds of silence = sentence complete (increased to allow natural pauses)
 const MIN_BUFFER_DURATION = 3000; // Minimum 3 seconds before allowing punctuation flush
 
 // Adaptive timeout constants
