@@ -303,17 +303,30 @@ module.exports.setCurrentProfile = setCurrentProfile;
 
 /**
  * Removes stale chunks from the audio correlation queue
- * Stale chunks are older than 5 seconds and likely represent drift
+ * Stale chunks are older than 2 seconds and likely represent drift
+ * Also enforces maximum queue size of 10 chunks to prevent overflow
  */
 function removeStaleChunks() {
     const now = Date.now();
-    const MAX_AGE_MS = 5000; // 5 seconds
+    const MAX_AGE_MS = 2000; // 2 seconds (reduced from 5s to prevent drift)
+    const MAX_QUEUE_SIZE = 10; // Maximum queue size before forcible drain
 
     const initialLength = audioChunkQueue.length;
+
+    // First, remove stale chunks based on age
     audioChunkQueue.splice(0, audioChunkQueue.length, ...audioChunkQueue.filter(chunk => {
         const age = now - chunk.timestamp;
         return age < MAX_AGE_MS;
     }));
+
+    // Second, forcibly drain queue if it exceeds max size (queue drift protection)
+    if (audioChunkQueue.length > MAX_QUEUE_SIZE) {
+        const excessChunks = audioChunkQueue.length - MAX_QUEUE_SIZE;
+        audioChunkQueue.splice(0, excessChunks); // Remove oldest chunks
+        if (process.env.DEBUG_CORRELATION) {
+            console.log(`[Correlation] Forcibly drained ${excessChunks} chunks to prevent queue overflow (queue was ${initialLength}, now ${audioChunkQueue.length})`);
+        }
+    }
 
     if (audioChunkQueue.length < initialLength && process.env.DEBUG_CORRELATION) {
         console.log(`[Correlation] Removed ${initialLength - audioChunkQueue.length} stale chunks (>${MAX_AGE_MS}ms old)`);
@@ -486,13 +499,18 @@ function validateSpeakerAttribution(attributedSpeaker, transcript) {
  */
 function logValidationMetrics() {
     if (process.env.DEBUG_SPEAKER_ATTRIBUTION && validationMetrics.totalAttributions > 0) {
-        console.log('[Validation Metrics]', {
+        const { sessionLogger } = require('./sessionLogger');
+        const metrics = {
             total: validationMetrics.totalAttributions,
             lowConfidence: validationMetrics.lowConfidenceCount,
             lowConfidenceRate: (validationMetrics.lowConfidenceCount / validationMetrics.totalAttributions * 100).toFixed(1) + '%',
             avgConfidence: validationMetrics.averageConfidence.toFixed(2),
             warnings: validationMetrics.warningsByType
-        });
+        };
+
+        // Log to both console and file
+        console.log('[Validation Metrics]', metrics);
+        sessionLogger.log('ValidationMetrics', JSON.stringify(metrics, null, 2));
     }
 }
 
@@ -928,7 +946,8 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
 
                             // Log validation results when debugging is enabled
                             if (process.env.DEBUG_SPEAKER_ATTRIBUTION) {
-                                console.log('[DEBUG] Speaker attribution:', {
+                                const { sessionLogger } = require('./sessionLogger');
+                                const debugInfo = {
                                     timestamp: new Date().toISOString(),
                                     transcript: newTranscript.substring(0, 50) + '...',
                                     attributedSpeaker: speaker,
@@ -940,11 +959,17 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                                         queueSize: validation.queueSize,
                                         queueAge: validation.queueAge ? `${validation.queueAge}ms` : 'N/A'
                                     }
-                                });
+                                };
+
+                                // Log to both console and file
+                                console.log('[DEBUG] Speaker attribution:', debugInfo);
+                                sessionLogger.log('SpeakerAttribution', JSON.stringify(debugInfo, null, 2));
 
                                 // Log warnings if any
                                 if (validation.warnings.length > 0) {
-                                    console.warn('[Validation Warnings]', validation.warnings.join(', '));
+                                    const warningMsg = '[Validation Warnings] ' + validation.warnings.join(', ');
+                                    console.warn(warningMsg);
+                                    sessionLogger.log('ValidationWarning', warningMsg);
                                 }
 
                                 // Periodically log validation metrics (every 50 attributions)
@@ -2044,7 +2069,10 @@ async function processTranscriptFragment(transcriptFragment) {
         // 4a. Validate speaker attribution
         const validation = validateSpeakerAttribution(speaker, normalizedText);
         if (process.env.DEBUG_SPEAKER_ATTRIBUTION && validation.warnings.length > 0) {
-            console.warn('[Validation Warnings in processTranscriptFragment]', validation.warnings.join(', '));
+            const { sessionLogger } = require('./sessionLogger');
+            const warningMsg = '[Validation Warnings in processTranscriptFragment] ' + validation.warnings.join(', ');
+            console.warn(warningMsg);
+            sessionLogger.log('ValidationWarning', warningMsg);
         }
 
         // 5. Check for interruption (if user speaking while AI generating)
@@ -2126,8 +2154,8 @@ let correlationCleanupInterval = null;
  */
 function startCorrelationCleanup() {
     if (!correlationCleanupInterval) {
-        correlationCleanupInterval = setInterval(cleanupExpiredCorrelations, 10000);
-        console.log('[Audio Correlation] Cleanup interval started');
+        correlationCleanupInterval = setInterval(cleanupExpiredCorrelations, 5000); // Run every 5s (increased from 10s)
+        console.log('[Audio Correlation] Cleanup interval started (every 5s)');
     }
 }
 

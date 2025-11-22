@@ -25,14 +25,14 @@ class SessionLogger {
         let logsDir;
 
         if (platform === 'win32') {
-            // Windows: %APPDATA%\prism-config\logs
-            logsDir = path.join(os.homedir(), 'AppData', 'Roaming', 'prism-config', 'logs');
+            // Windows: %APPDATA%\Prism\session-logs
+            logsDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Prism', 'session-logs');
         } else if (platform === 'darwin') {
-            // macOS: ~/Library/Application Support/prism-config/logs
-            logsDir = path.join(os.homedir(), 'Library', 'Application Support', 'prism-config', 'logs');
+            // macOS: ~/Library/Application Support/Prism/session-logs
+            logsDir = path.join(os.homedir(), 'Library', 'Application Support', 'Prism', 'session-logs');
         } else {
-            // Linux and others: ~/.config/prism-config/logs
-            logsDir = path.join(os.homedir(), '.config', 'prism-config', 'logs');
+            // Linux and others: ~/.config/Prism/session-logs
+            logsDir = path.join(os.homedir(), '.config', 'Prism', 'session-logs');
         }
 
         return logsDir;
