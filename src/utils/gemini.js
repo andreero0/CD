@@ -87,7 +87,9 @@ let turnHistory = [];  // Array of { speaker, text, timestamp }
 // TRANSCRIPT BUFFERING: Prevent word-by-word fragmentation
 let userSpeechBuffer = ''; // Buffer to accumulate user speech
 let lastUserSpeechTime = Date.now(); // Track when last user speech arrived
+let bufferStartTime = Date.now(); // Track when buffer started accumulating
 const USER_SPEECH_TIMEOUT = 2000; // 2 seconds of silence = sentence complete
+const MIN_BUFFER_DURATION = 3000; // Minimum 3 seconds before allowing punctuation flush
 
 // Adaptive timeout constants
 const IDLE_TIMEOUT = 2000;          // 2s when no active coaching
@@ -938,18 +940,28 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                         if (newTranscript && newTranscript.trim()) {
                             // TRANSCRIPT BUFFERING: Accumulate fragments before processing
                             // This prevents syllable-by-syllable speaker attribution
+
+                            // Reset buffer start time if buffer was empty
+                            if (userSpeechBuffer === '') {
+                                bufferStartTime = Date.now();
+                            }
+
                             userSpeechBuffer += newTranscript + ' ';
 
                             // Update last speech time for timeout tracking
                             const now = Date.now();
                             const timeSinceLastSpeech = now - lastUserSpeechTime;
+                            const bufferDuration = now - bufferStartTime;
                             lastUserSpeechTime = now;
 
                             // Check if we should flush the buffer
                             const trimmedBuffer = userSpeechBuffer.trim();
                             const wordCount = trimmedBuffer.split(/\s+/).length;
                             // Ignore ellipsis (...) - only flush on real sentence endings (. ! ?)
-                            const hasEndPunctuation = /[.!?]$/.test(trimmedBuffer) && !/\.\.\.+$/.test(trimmedBuffer);
+                            const hasRealPunctuation = /[.!?]$/.test(trimmedBuffer) && !/\.\.\.+$/.test(trimmedBuffer);
+                            // Only allow punctuation flush if buffer has been accumulating for minimum duration
+                            // This prevents premature flushing on Gemini's incorrectly inserted periods
+                            const hasEndPunctuation = hasRealPunctuation && bufferDuration >= MIN_BUFFER_DURATION;
                             const timeoutReached = timeSinceLastSpeech >= USER_SPEECH_TIMEOUT;
                             // Increased word threshold from 5 to 12 for better phrase accumulation
                             const shouldFlush = wordCount >= 12 || hasEndPunctuation || timeoutReached;
@@ -1101,6 +1113,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
 
                                 // Clear buffer after processing
                                 userSpeechBuffer = '';
+                                bufferStartTime = now; // Reset buffer start time for next accumulation
 
                                 // Update previous speaker for turn tracking
                                 previousSpeaker = speaker;
