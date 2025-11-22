@@ -14,6 +14,24 @@ let currentTranscription = '';
 let conversationHistory = [];
 let isInitializingSession = false;
 
+/**
+ * Normalizes text by removing excessive whitespace
+ * Handles: multiple spaces, tabs, Unicode spaces, space before punctuation, spaces around newlines
+ * Preserves: punctuation, speaker labels, single newlines
+ * @param {string} text - Raw text from Gemini
+ * @returns {string} - Normalized text
+ */
+function normalizeText(text) {
+    return text
+        .replace(/[\u2000-\u200B\u202F\u205F\u3000]/g, ' ')  // Unicode → ASCII
+        .replace(/\t/g, ' ')                                  // Tabs → space
+        .replace(/ +/g, ' ')                                  // Multiple → single
+        .replace(/ ([.,!?])/g, '$1')                         // Space before punct
+        .replace(/ *\n */g, '\n')                            // Clean spaces around newlines
+        .replace(/\n{3,}/g, '\n\n')                          // Multiple newlines
+        .trim();
+}
+
 // Speaker label mappings for different profiles
 const speakerLabelMaps = {
     interview: ['Interviewer 1', 'You', 'Interviewer 2', 'Interviewer 3', 'Interviewer 4', 'Interviewer 5'],
@@ -27,6 +45,13 @@ const speakerLabelMaps = {
 // Track the current profile for speaker labeling
 let currentProfile = 'interview';
 
+// Context injection constants
+const CONTEXT_DEBOUNCE_DELAY = 500;        // 500ms debounce
+const CONTEXT_FALLBACK_TIMEOUT = 3000;     // 3s fallback
+const CONTEXT_MAX_SIZE = 1000;             // 1000 chars immediate send
+const CONTEXT_HARD_LIMIT = 2000;           // 2000 chars truncate
+const CONTEXT_TURN_HISTORY = 3;            // Last 3 turns
+
 // CORRELATION-BASED SPEAKER TRACKING SYSTEM
 // Queue to track audio chunks in order for correlation-based speaker attribution
 const audioChunkQueue = [];
@@ -38,13 +63,207 @@ let speakerContextBuffer = '';
 const CONTEXT_SEND_FALLBACK_TIMEOUT = 3000; // 3s fallback if no speaker change
 let lastContextSentTime = Date.now();
 
+// Context injection state
+let debounceTimer = null;
+let pendingContextSend = false;
+let turnHistory = [];  // Array of { speaker, text, timestamp }
+
 // TRANSCRIPT BUFFERING: Prevent word-by-word fragmentation
 let userSpeechBuffer = ''; // Buffer to accumulate user speech
 let lastUserSpeechTime = Date.now(); // Track when last user speech arrived
 const USER_SPEECH_TIMEOUT = 2000; // 2 seconds of silence = sentence complete
 
+// Adaptive timeout constants
+const IDLE_TIMEOUT = 2000;          // 2s when no active coaching
+const MONITORING_TIMEOUT = 3000;    // 3s when user is answering
+const SLOW_START_TIMEOUT = 3000;    // 3s for first few words
+const MIN_WORD_THRESHOLD = 5;       // Minimum words before sending to UI
+
 function setCurrentProfile(profile) {
     currentProfile = profile || 'interview';
+}
+
+/**
+ * Determines appropriate timeout based on conversation state and buffer state
+ * Priority: 1) wordCount < 3 → 3s, 2) MONITORING state → 3s, 3) else → 2s
+ * @param {string} conversationState - Current state (IDLE/MONITORING/etc)
+ * @param {number} wordCount - Current buffer word count
+ * @returns {number} - Timeout in milliseconds
+ */
+function getAdaptiveTimeout(conversationState, wordCount) {
+    // Priority order matters!
+    if (wordCount < 3) return SLOW_START_TIMEOUT;
+    if (conversationState === 'MONITORING') return MONITORING_TIMEOUT;
+    return IDLE_TIMEOUT;
+}
+
+/**
+ * Counts words in text
+ * @param {string} text - Text to count
+ * @returns {number} - Word count
+ */
+function countWords(text) {
+    return text.trim().split(/\s+/).filter(w => w.length > 0).length;
+}
+
+/**
+ * Determines if buffer should flush based on content and timing
+ * @param {string} buffer - Current buffer content
+ * @param {number} lastUpdateTime - Timestamp of last update
+ * @param {string} conversationState - Current conversation state
+ * @returns {boolean} - True if should flush
+ */
+function shouldFlushBuffer(buffer, lastUpdateTime, conversationState) {
+    const wordCount = countWords(buffer);
+    const hasSentenceEnding = /[.!?]$/.test(buffer.trim());
+
+    // Always flush if sentence-ending punctuation
+    if (hasSentenceEnding) return true;
+
+    // Check timeout
+    const timeout = getAdaptiveTimeout(conversationState, wordCount);
+    const timeSinceLastUpdate = Date.now() - lastUpdateTime;
+    const timeoutReached = timeSinceLastUpdate >= timeout;
+
+    // Only flush on timeout if word count meets threshold
+    if (timeoutReached && wordCount >= MIN_WORD_THRESHOLD) return true;
+
+    return false;
+}
+
+/**
+ * Handles speaker change logic
+ * @param {string} currentBuffer - Current buffer content
+ * @param {string} previousSpeaker - Previous speaker
+ * @param {string} newSpeaker - New speaker
+ * @returns {object} - { shouldFlush: boolean, shouldDiscard: boolean }
+ */
+function handleSpeakerChange(currentBuffer, previousSpeaker, newSpeaker) {
+    // No speaker change, no action
+    if (previousSpeaker === newSpeaker) {
+        return { shouldFlush: false, shouldDiscard: false };
+    }
+
+    const wordCount = countWords(currentBuffer);
+
+    // Speaker changed
+    if (wordCount >= MIN_WORD_THRESHOLD) {
+        // Flush buffer with >= 5 words
+        return { shouldFlush: true, shouldDiscard: false };
+    } else {
+        // Discard buffer with < 5 words
+        return { shouldFlush: false, shouldDiscard: true };
+    }
+}
+
+/**
+ * Cancels active debounce timer
+ * Called when: context exceeds 1000 chars, session ends, system shutdown
+ */
+function cancelDebounce() {
+    if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+        pendingContextSend = false;
+        const { sessionLogger } = require('./sessionLogger');
+        sessionLogger.logDebounce('cancelled', 0);
+    }
+}
+
+/**
+ * Schedules context injection with debouncing
+ * @param {string} trigger - Trigger reason (speaker_turn/timeout/size_limit)
+ */
+function scheduleContextInjection(trigger) {
+    const { sessionLogger } = require('./sessionLogger');
+
+    // Check size limits first
+    if (speakerContextBuffer.length > CONTEXT_MAX_SIZE) {
+        // Immediate send for large buffers
+        cancelDebounce();
+        sendContextToAI(speakerContextBuffer, 'size_limit');
+        return;
+    }
+
+    // Cancel existing timer
+    if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        sessionLogger.logDebounce('cancelled', CONTEXT_DEBOUNCE_DELAY);
+    }
+
+    // Schedule new debounce
+    pendingContextSend = true;
+    sessionLogger.logDebounce('scheduled', CONTEXT_DEBOUNCE_DELAY);
+
+    debounceTimer = setTimeout(() => {
+        sessionLogger.logDebounce('executed', CONTEXT_DEBOUNCE_DELAY);
+        sendContextToAI(speakerContextBuffer, trigger);
+        pendingContextSend = false;
+        debounceTimer = null;
+    }, CONTEXT_DEBOUNCE_DELAY);
+}
+
+/**
+ * Builds context message with turn history and last suggestion
+ * Format:
+ *   <context>[Interviewer]: question\n[You]: answer</context>
+ *   <lastSuggestion>Text... Turn ID: 3</lastSuggestion>
+ * @param {string} currentSuggestion - Current suggestion object
+ * @returns {string} - Formatted context message
+ */
+function buildContextMessage(currentSuggestion = null) {
+    // Get last N turns from turn history
+    const recentTurns = turnHistory.slice(-CONTEXT_TURN_HISTORY);
+    const contextText = recentTurns.map(turn =>
+        `[${turn.speaker}]: ${turn.text}`
+    ).join('\n');
+
+    let message = `<context>\n${contextText}\n</context>`;
+
+    // Add last suggestion if exists
+    if (currentSuggestion && currentSuggestion.text) {
+        message += `\n<lastSuggestion>${currentSuggestion.text} Turn ID: ${currentSuggestion.turnId}</lastSuggestion>`;
+    }
+
+    return message;
+}
+
+/**
+ * Sends context to Gemini with retry logic
+ * @param {string} context - Context text
+ * @param {string} trigger - Trigger reason
+ * @param {boolean} isRetry - Whether this is a retry attempt
+ */
+async function sendContextToAI(context, trigger, isRetry = false) {
+    const { sessionLogger } = require('./sessionLogger');
+
+    try {
+        // Check size and truncate if needed
+        if (context.length > CONTEXT_HARD_LIMIT) {
+            sessionLogger.logContextTruncation(context.length, CONTEXT_HARD_LIMIT);
+            context = context.slice(-CONTEXT_HARD_LIMIT);  // Keep most recent
+        }
+
+        // Log the send
+        sessionLogger.log('ContextInjection', `Trigger: ${trigger}, Size: ${context.length} chars`);
+
+        // Send to Gemini (assuming geminiSessionRef exists)
+        if (global.geminiSessionRef && global.geminiSessionRef.current) {
+            await global.geminiSessionRef.current.sendRealtimeInput({ text: context });
+            lastContextSentTime = Date.now();
+            speakerContextBuffer = '';  // Clear buffer after successful send
+        }
+    } catch (error) {
+        console.error('[Context Injection] Failed:', error);
+        sessionLogger.log('ContextInjection', `Error: ${error.message}`);
+
+        // Retry once after 1 second
+        if (!isRetry) {
+            setTimeout(() => {
+                sendContextToAI(context, `${trigger}_retry`, true);
+            }, 1000);
+        }
+    }
 }
 
 function formatSpeakerResults(results, profile = null) {
@@ -144,8 +363,11 @@ function sendSpeakerContextIfNeeded(currentSpeaker, geminiSessionRef, force = fa
 
 // Audio capture variables
 let systemAudioProc = null;
+
+// AI response handling
 let messageBuffer = '';
 let isGenerationComplete = true; // Track if previous AI response is complete
+let isResponseInterrupted = false;
 
 // Reconnection tracking variables
 let reconnectionAttempts = 0;
@@ -1031,6 +1253,12 @@ async function sendAudioToGemini(base64Data, geminiSessionRef) {
             audioChunkQueue.shift(); // Remove oldest
         }
 
+        // Queue overflow detection
+        if (audioChunkQueue.length > 100) {
+            const { sessionLogger } = require('./sessionLogger');
+            sessionLogger.log('AudioCorrelation', `Warning: Queue size ${audioChunkQueue.length} exceeds 100 - possible correlation drift`);
+        }
+
         process.stdout.write('.');
         await geminiSessionRef.current.sendRealtimeInput({
             audio: {
@@ -1110,6 +1338,12 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
                 audioChunkQueue.shift(); // Remove oldest
             }
 
+            // Queue overflow detection
+            if (audioChunkQueue.length > 100) {
+                const { sessionLogger } = require('./sessionLogger');
+                sessionLogger.log('AudioCorrelation', `Warning: Queue size ${audioChunkQueue.length} exceeds 100 - possible correlation drift`);
+            }
+
             process.stdout.write('.');
             await geminiSessionRef.current.sendRealtimeInput({
                 audio: { data: data, mimeType: mimeType },
@@ -1152,6 +1386,12 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             // Limit queue size to prevent memory leaks
             if (audioChunkQueue.length > MAX_QUEUE_SIZE) {
                 audioChunkQueue.shift(); // Remove oldest
+            }
+
+            // Queue overflow detection
+            if (audioChunkQueue.length > 100) {
+                const { sessionLogger } = require('./sessionLogger');
+                sessionLogger.log('AudioCorrelation', `Warning: Queue size ${audioChunkQueue.length} exceeds 100 - possible correlation drift`);
             }
 
             process.stdout.write(',');
@@ -1308,6 +1548,390 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
     });
 }
 
+
+/**
+ * Detects if AI should be interrupted
+ * Interruption occurs when: new user speech arrives AND AI is generating
+ * Called from bufferTranscript() when speaker="You"
+ * @returns {boolean} - True if AI response should be interrupted
+ */
+function shouldInterruptAI() {
+    return messageBuffer.length > 0 && !isGenerationComplete;
+}
+
+/**
+ * Marks response as interrupted when user speaks
+ */
+function interruptAIResponse() {
+    const { sessionLogger } = require('./sessionLogger');
+
+    if (shouldInterruptAI()) {
+        isResponseInterrupted = true;
+        sessionLogger.log('AIResponse', `Interrupted (${messageBuffer.length} chars buffered)`);
+        messageBuffer = '';  // Clear buffer
+        isGenerationComplete = true;  // Mark as complete (though interrupted)
+    }
+}
+
+/**
+ * Handles incoming AI response chunks
+ * @param {object} serverContent - Response from Gemini
+ */
+function handleAIResponse(serverContent) {
+    const { sessionLogger } = require('./sessionLogger');
+
+    try {
+        // Check if this is a new response start
+        if (!messageBuffer && serverContent.modelTurn) {
+            // Clear previous response
+            messageBuffer = '';
+            isGenerationComplete = false;
+            isResponseInterrupted = false;
+            sessionLogger.log('AIResponse', 'New response started');
+        }
+
+        // Accumulate response text
+        if (serverContent.text) {
+            messageBuffer += serverContent.text;
+        }
+
+        // Check if response is complete
+        if (serverContent.turnComplete) {
+            isGenerationComplete = true;
+
+            // Parse practice tags
+            const parsed = parsePracticeTags(messageBuffer);
+
+            // Log completion
+            sessionLogger.log('AIResponse', `Complete (${messageBuffer.length} chars, suggestion: ${!!parsed.suggestion}, feedback: ${!!parsed.feedback})`);
+
+            // Return parsed content
+            return parsed;
+        }
+
+        return null;  // Response still in progress
+    } catch (error) {
+        console.error('[AI Response] Error:', error);
+        sessionLogger.log('AIResponse', `Error: ${error.message}`);
+
+        // Malformed response - skip and continue
+        messageBuffer = '';
+        isGenerationComplete = true;
+        return null;
+    }
+}
+
+/**
+ * Sanitizes potentially corrupted text
+ * @param {string} text - Text to sanitize
+ * @returns {string} - Sanitized text
+ */
+function sanitizeText(text) {
+    try {
+        // Remove null bytes
+        let sanitized = text.replace(/\0/g, '');
+
+        // Remove other control characters except newlines/tabs
+        sanitized = sanitized.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '');
+
+        // Ensure valid UTF-8 (basic check)
+        return sanitized.trim();
+    } catch (error) {
+        console.error('[Sanitize] Error:', error);
+        return '';  // Return empty string on failure
+    }
+}
+
+/**
+ * Validates transcript fragment
+ * @param {object} fragment - Transcript fragment from Gemini
+ * @returns {boolean} - True if valid
+ */
+function validateTranscriptFragment(fragment) {
+    try {
+        if (!fragment) return false;
+        if (typeof fragment.text !== 'string') return false;
+        if (fragment.text.trim().length === 0) return false;
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
+/**
+ * Parses practice mode tags from AI response
+ * Format: <suggestion>text</suggestion> and <feedback>text</feedback>
+ * @param {string} text - AI response text
+ * @returns {object} - { suggestion: string|null, feedback: string|null, raw: string }
+ */
+function parsePracticeTags(text) {
+    const suggestionMatch = text.match(/<suggestion>(.*?)<\/suggestion>/s);
+    const feedbackMatch = text.match(/<feedback>(.*?)<\/feedback>/s);
+    return {
+        suggestion: suggestionMatch ? suggestionMatch[1].trim() : null,
+        feedback: feedbackMatch ? feedbackMatch[1].trim() : null,
+        raw: text.replace(/<\/?(?:suggestion|feedback)>/g, '').trim()
+    };
+}
+
+// ============================================================================
+// TASK 12: CONVERSATION STATE MACHINE INTEGRATION
+// ============================================================================
+
+/**
+ * Gets current conversation state
+ * @returns {string} - Current state (IDLE/SUGGESTING/MONITORING/EVALUATING)
+ */
+function getCurrentConversationState() {
+    try {
+        return conversationState.getState() || 'IDLE';
+    } catch (error) {
+        console.error('[ConversationState] Error getting state:', error);
+        return 'IDLE';  // Safe default
+    }
+}
+
+/**
+ * Tracks suggestion from AI
+ * @param {string} suggestionText - The suggestion text
+ * @param {number} turnId - Turn identifier
+ */
+function trackSuggestion(suggestionText, turnId) {
+    try {
+        conversationState.trackSuggestion(suggestionText, turnId);
+        const { sessionLogger } = require('./sessionLogger');
+        sessionLogger.log('ConversationState', `Tracking suggestion for turn ${turnId}`);
+    } catch (error) {
+        console.error('[ConversationState] Error tracking suggestion:', error);
+    }
+}
+
+/**
+ * Compares user response to last suggestion
+ * @param {string} userText - User's spoken text
+ * @returns {object} - Adherence comparison result
+ */
+function compareUserResponse(userText) {
+    try {
+        return conversationState.compareResponse(userText);
+    } catch (error) {
+        console.error('[ConversationState] Error comparing response:', error);
+        return { adherence: 0, hasSuggestion: false };
+    }
+}
+
+// ============================================================================
+// TASK 13: AUDIO CORRELATION INTEGRATION
+// ============================================================================
+
+/**
+ * Cleans up expired audio correlation entries
+ * Called every 10 seconds via interval timer
+ * Prevents queue buildup from stale entries
+ */
+function cleanupExpiredCorrelations() {
+    const now = Date.now();
+    const initialSize = audioChunkQueue.length;
+
+    // Remove entries older than 10 seconds (matching FIFO expected latency)
+    const EXPIRY_TIME = 10000; // 10 seconds
+    const filtered = audioChunkQueue.filter(entry => {
+        const age = now - entry.timestamp;
+        return age < EXPIRY_TIME;
+    });
+
+    // Replace queue with filtered version
+    audioChunkQueue.length = 0;
+    audioChunkQueue.push(...filtered);
+
+    const removed = initialSize - audioChunkQueue.length;
+    if (removed > 0) {
+        console.log(`[Audio Correlation] Cleaned up ${removed} expired entries`);
+    }
+}
+
+// ============================================================================
+// TASK 14: RAG INTEGRATION
+// ============================================================================
+
+/**
+ * Queries RAG system if question is long enough
+ * @param {string} questionText - Interviewer's question
+ * @param {string} sessionId - Current session ID
+ * @returns {Promise<object>} - RAG result
+ */
+async function queryRAGIfNeeded(questionText, sessionId) {
+    const wordCount = countWords(questionText);
+
+    // Only query RAG for questions > 10 words
+    if (wordCount <= 10) {
+        const { sessionLogger } = require('./sessionLogger');
+        sessionLogger.log('RAG', `Skipping RAG query - question too short (${wordCount} words)`);
+        return { usedRAG: false, context: null };
+    }
+
+    try {
+        const ragResult = await retrieveContext(questionText, sessionId, {
+            topK: 5,
+            minScore: 0.6,
+            maxTokens: 400
+        });
+
+        return ragResult;
+    } catch (error) {
+        console.error('[RAG] Query failed:', error);
+        return { usedRAG: false, context: null };
+    }
+}
+
+/**
+ * Sends context with optional RAG enhancement
+ * @param {string} mainContext - Main context to send
+ * @param {string} trigger - Trigger reason
+ * @param {object} ragResult - Optional RAG result
+ */
+async function sendContextWithRAG(mainContext, trigger, ragResult = null) {
+    // Send main context first (blocking)
+    await sendContextToAI(mainContext, trigger);
+
+    // Send RAG context immediately after (non-blocking)
+    if (ragResult && ragResult.usedRAG && ragResult.context) {
+        const ragMessage = `<relevantHistory>${ragResult.context}</relevantHistory>`;
+        sendContextToAI(ragMessage, 'rag')
+            .catch(err => {
+                console.error('[RAG] Non-critical failure:', err);
+                const { sessionLogger } = require('./sessionLogger');
+                sessionLogger.log('RAG', `Failed to send RAG context: ${err.message}`);
+            });
+    }
+}
+
+// ============================================================================
+// TASK 15: MAIN TRANSCRIPT FLOW INTEGRATION
+// ============================================================================
+
+/**
+ * Main transcript buffering handler
+ * Integrates all components: buffering, normalization, speaker attribution, context injection
+ * @param {object} transcriptFragment - Raw fragment from Gemini
+ */
+async function processTranscriptFragment(transcriptFragment) {
+    const { sessionLogger } = require('./sessionLogger');
+
+    try {
+        // 1. Validate fragment
+        if (!validateTranscriptFragment(transcriptFragment)) {
+            sessionLogger.logBufferRejection('invalid fragment', 0);
+            return;
+        }
+
+        // 2. Sanitize text
+        const sanitizedText = sanitizeText(transcriptFragment.text);
+
+        // 3. Normalize text
+        const normalizedText = normalizeText(sanitizedText);
+
+        // 4. Get speaker from audio correlation
+        const speaker = determineSpeakerFromCorrelation();
+
+        // 5. Check for interruption (if user speaking while AI generating)
+        if (speaker === 'You' && shouldInterruptAI()) {
+            interruptAIResponse();
+        }
+
+        // 6. Handle speaker change
+        const speakerAction = handleSpeakerChange(userSpeechBuffer, previousSpeaker, speaker);
+
+        if (speakerAction.shouldFlush) {
+            // Flush previous speaker's buffer
+            flushBufferToUI(userSpeechBuffer, previousSpeaker);
+            userSpeechBuffer = '';
+        } else if (speakerAction.shouldDiscard) {
+            // Discard invalid buffer
+            sessionLogger.logBufferRejection('speaker change with < 5 words', countWords(userSpeechBuffer));
+            userSpeechBuffer = '';
+        }
+
+        // 7. Update current speaker
+        previousSpeaker = speaker;
+
+        // 8. Add to buffer
+        userSpeechBuffer += normalizedText + ' ';
+        lastUserSpeechTime = Date.now();
+
+        // 9. Check if should flush buffer
+        const currentState = getCurrentConversationState();
+        if (shouldFlushBuffer(userSpeechBuffer, lastUserSpeechTime, currentState)) {
+            flushBufferToUI(userSpeechBuffer, speaker);
+            userSpeechBuffer = '';
+        }
+
+        // 10. Add to context buffer
+        speakerContextBuffer += `[${speaker}]: ${normalizedText} `;
+
+        // 11. Update turn history
+        turnHistory.push({ speaker, text: normalizedText, timestamp: Date.now() });
+        if (turnHistory.length > CONTEXT_TURN_HISTORY) {
+            turnHistory.shift();  // Remove oldest
+        }
+
+        // 12. Schedule context injection on speaker change
+        if (speakerAction.shouldFlush || speakerAction.shouldDiscard) {
+            scheduleContextInjection('speaker_turn');
+        }
+
+    } catch (error) {
+        console.error('[Transcript Processing] Error:', error);
+        sessionLogger.log('TranscriptProcessing', `Error: ${error.message}`);
+    }
+}
+
+/**
+ * Helper: Flush buffer to UI
+ * @param {string} buffer - Buffer to flush
+ * @param {string} speaker - Speaker label
+ */
+function flushBufferToUI(buffer, speaker) {
+    const { sessionLogger } = require('./sessionLogger');
+    const wordCount = countWords(buffer);
+
+    // Format with speaker label
+    const formattedTranscript = `[${speaker}]: ${buffer.trim()}`;
+
+    // Send to renderer
+    sendToRenderer('transcript', formattedTranscript);
+
+    // Log
+    sessionLogger.log('TranscriptBuffer', `Flushed ${wordCount} words for ${speaker}: ${buffer.substring(0, 50)}...`);
+}
+
+// Set up audio correlation cleanup (every 10 seconds)
+let correlationCleanupInterval = null;
+
+/**
+ * Start the audio correlation cleanup interval
+ */
+function startCorrelationCleanup() {
+    if (!correlationCleanupInterval) {
+        correlationCleanupInterval = setInterval(cleanupExpiredCorrelations, 10000);
+        console.log('[Audio Correlation] Cleanup interval started');
+    }
+}
+
+/**
+ * Stop the audio correlation cleanup interval
+ */
+function stopCorrelationCleanup() {
+    if (correlationCleanupInterval) {
+        clearInterval(correlationCleanupInterval);
+        correlationCleanupInterval = null;
+        console.log('[Audio Correlation] Cleanup interval stopped');
+    }
+}
+
+// Start cleanup on module load
+startCorrelationCleanup();
+
 module.exports = {
     initializeGeminiSession,
     getEnabledTools,
@@ -1325,4 +1949,33 @@ module.exports = {
     setupGeminiIpcHandlers,
     attemptReconnection,
     formatSpeakerResults,
+    getAdaptiveTimeout,
+    parsePracticeTags,
+    normalizeText,
+    countWords,
+    shouldFlushBuffer,
+    handleSpeakerChange,
+    cancelDebounce,
+    scheduleContextInjection,
+    buildContextMessage,
+    sendContextToAI,
+    shouldInterruptAI,
+    interruptAIResponse,
+    handleAIResponse,
+    sanitizeText,
+    validateTranscriptFragment,
+    // Task 12: Conversation State Integration
+    getCurrentConversationState,
+    trackSuggestion,
+    compareUserResponse,
+    // Task 13: Audio Correlation Integration
+    cleanupExpiredCorrelations,
+    startCorrelationCleanup,
+    stopCorrelationCleanup,
+    // Task 14: RAG Integration
+    queryRAGIfNeeded,
+    sendContextWithRAG,
+    // Task 15: Main Transcript Flow
+    processTranscriptFragment,
+    flushBufferToUI,
 };
