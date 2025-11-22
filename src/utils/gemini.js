@@ -41,7 +41,7 @@ let lastContextSentTime = Date.now();
 // TRANSCRIPT BUFFERING: Prevent word-by-word fragmentation
 let userSpeechBuffer = ''; // Buffer to accumulate user speech
 let lastUserSpeechTime = Date.now(); // Track when last user speech arrived
-const USER_SPEECH_TIMEOUT = 2000; // 2 seconds of silence = sentence complete
+const USER_SPEECH_TIMEOUT = 4000; // 4 seconds of silence = sentence complete (increased to handle slow Gemini transcription)
 
 function setCurrentProfile(profile) {
     currentProfile = profile || 'interview';
@@ -628,7 +628,10 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                             if (hasSentenceEnding || bufferTimeoutReached) {
                                 const reason = hasSentenceEnding ? 'sentence complete' : 'timeout';
                                 console.log(`[Transcript Buffer] Sending buffered speech (${reason}, ${trimmedBuffer.split(' ').length} words): "${trimmedBuffer.substring(0, 50)}..."`);
-                                sendToRenderer('transcript-update', { text: trimmedBuffer, speaker: speaker });
+
+                                // Format with speaker label for direct display (eliminates frontend re-buffering)
+                                const formattedTranscript = `[${speaker}]: ${trimmedBuffer}`;
+                                sendToRenderer('transcript-update', { text: formattedTranscript, speaker: speaker });
                                 userSpeechBuffer = ''; // Clear buffer after sending
                             } else {
                                 // Still buffering - log progress every 5 words
