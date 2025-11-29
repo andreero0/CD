@@ -35,7 +35,8 @@ docs/
 | Understand what Prism does | [README.md](README.md) |
 | Set up audio capture on macOS | [docs/setup/BLACKHOLE_SETUP.md](docs/setup/BLACKHOLE_SETUP.md) |
 | Learn about the coaching loop | [docs/guides/QUICK_START_COACHING_LOOP.md](docs/guides/QUICK_START_COACHING_LOOP.md) |
-| Use the RAG system | [docs/RAG_USAGE_EXAMPLES.md](docs/RAG_USAGE_EXAMPLES.md) |
+| Use the RAG system | [docs/guides/RAG_USAGE_EXAMPLES.md](docs/guides/RAG_USAGE_EXAMPLES.md) |
+| Configure the system | [docs/reference/CONFIGURATION.md](docs/reference/CONFIGURATION.md) |
 
 ### For Developers
 
@@ -44,8 +45,9 @@ docs/
 | Understand the codebase | [docs/reference/CODE_EXPLANATION.md](docs/reference/CODE_EXPLANATION.md) |
 | Follow development guidelines | [AGENTS.md](AGENTS.md) |
 | Review security fixes | [docs/security/SECURITY_FIXES.md](docs/security/SECURITY_FIXES.md) |
-| Understand RAG architecture | [docs/RAG_SYSTEM.md](docs/RAG_SYSTEM.md) |
+| Understand RAG architecture | [docs/implementations/RAG_SYSTEM.md](docs/implementations/RAG_SYSTEM.md) |
 | See implementation details | [docs/implementations/](docs/implementations/) |
+| Configure system settings | [docs/reference/CONFIGURATION.md](docs/reference/CONFIGURATION.md) |
 
 ### For Contributors
 
@@ -63,9 +65,10 @@ docs/
 3. **[docs/DOCUMENTATION_INDEX.md](docs/DOCUMENTATION_INDEX.md)** - Complete documentation index
 
 ### Feature Documentation
-- **RAG System**: [docs/RAG_SYSTEM.md](docs/RAG_SYSTEM.md)
+- **RAG System**: [docs/implementations/RAG_SYSTEM.md](docs/implementations/RAG_SYSTEM.md)
 - **Coaching Loop**: [docs/implementations/COACHING_LOOP_IMPLEMENTATION.md](docs/implementations/COACHING_LOOP_IMPLEMENTATION.md)
 - **Correlation ID System**: [docs/implementations/CORRELATION_ID_IMPLEMENTATION.md](docs/implementations/CORRELATION_ID_IMPLEMENTATION.md)
+- **Configuration**: [docs/reference/CONFIGURATION.md](docs/reference/CONFIGURATION.md)
 
 ### Implementation Reports
 All agent implementation reports are in [docs/agent-reports/](docs/agent-reports/):
@@ -114,4 +117,4 @@ When adding new documentation:
 
 ---
 
-**Last Updated**: 2024-11-21
+**Last Updated**: 2024-11-28

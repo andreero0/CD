@@ -2,12 +2,25 @@
 // This file handles storage for document embeddings and chunks in the renderer process
 
 /**
+ * Check if we're in a browser environment with IndexedDB support
+ */
+function isBrowserEnvironment() {
+    return typeof window !== 'undefined' && typeof indexedDB !== 'undefined';
+}
+
+/**
  * Initialize IndexedDB for RAG storage
  * Stores embeddings and document chunks separately from conversation history
  */
 let ragDB = null;
 
 async function initRAGStorage() {
+    // Only initialize if in browser environment
+    if (!isBrowserEnvironment()) {
+        console.warn('[RAG Storage] IndexedDB not available, skipping initialization');
+        return null;
+    }
+
     return new Promise((resolve, reject) => {
         const request = indexedDB.open('RAGStorage', 1);
 
@@ -54,8 +67,18 @@ async function initRAGStorage() {
  * @returns {Promise<number>} - ID of saved embedding
  */
 async function saveEmbedding(embeddingData) {
+    if (!isBrowserEnvironment()) {
+        console.warn('[RAG Storage] IndexedDB not available, skipping save');
+        return null;
+    }
+
     if (!ragDB) {
         await initRAGStorage();
+    }
+
+    if (!ragDB) {
+        console.warn('[RAG Storage] Failed to initialize database');
+        return null;
     }
 
     const transaction = ragDB.transaction(['embeddings'], 'readwrite');
@@ -77,8 +100,18 @@ async function saveEmbedding(embeddingData) {
  * @returns {Promise<number[]>} - Array of IDs
  */
 async function saveBatchEmbeddings(embeddingsData) {
+    if (!isBrowserEnvironment()) {
+        console.warn('[RAG Storage] IndexedDB not available, skipping batch save');
+        return [];
+    }
+
     if (!ragDB) {
         await initRAGStorage();
+    }
+
+    if (!ragDB) {
+        console.warn('[RAG Storage] Failed to initialize database');
+        return [];
     }
 
     const transaction = ragDB.transaction(['embeddings'], 'readwrite');
@@ -115,8 +148,18 @@ async function saveBatchEmbeddings(embeddingsData) {
  * @returns {Promise<Array>} - Array of embeddings
  */
 async function getSessionEmbeddings(sessionId) {
+    if (!isBrowserEnvironment()) {
+        console.warn('[RAG Storage] IndexedDB not available, returning empty array');
+        return [];
+    }
+
     if (!ragDB) {
         await initRAGStorage();
+    }
+
+    if (!ragDB) {
+        console.warn('[RAG Storage] Failed to initialize database');
+        return [];
     }
 
     const transaction = ragDB.transaction(['embeddings'], 'readonly');
@@ -136,8 +179,18 @@ async function getSessionEmbeddings(sessionId) {
  * @returns {Promise<number>} - ID of saved chunk
  */
 async function saveChunk(chunkData) {
+    if (!isBrowserEnvironment()) {
+        console.warn('[RAG Storage] IndexedDB not available, skipping chunk save');
+        return null;
+    }
+
     if (!ragDB) {
         await initRAGStorage();
+    }
+
+    if (!ragDB) {
+        console.warn('[RAG Storage] Failed to initialize database');
+        return null;
     }
 
     const transaction = ragDB.transaction(['chunks'], 'readwrite');
@@ -159,8 +212,18 @@ async function saveChunk(chunkData) {
  * @returns {Promise<number[]>} - Array of IDs
  */
 async function saveBatchChunks(chunksData) {
+    if (!isBrowserEnvironment()) {
+        console.warn('[RAG Storage] IndexedDB not available, skipping batch chunk save');
+        return [];
+    }
+
     if (!ragDB) {
         await initRAGStorage();
+    }
+
+    if (!ragDB) {
+        console.warn('[RAG Storage] Failed to initialize database');
+        return [];
     }
 
     const transaction = ragDB.transaction(['chunks'], 'readwrite');
@@ -197,8 +260,18 @@ async function saveBatchChunks(chunksData) {
  * @returns {Promise<Array>} - Array of chunks
  */
 async function getSessionChunks(sessionId) {
+    if (!isBrowserEnvironment()) {
+        console.warn('[RAG Storage] IndexedDB not available, returning empty array');
+        return [];
+    }
+
     if (!ragDB) {
         await initRAGStorage();
+    }
+
+    if (!ragDB) {
+        console.warn('[RAG Storage] Failed to initialize database');
+        return [];
     }
 
     const transaction = ragDB.transaction(['chunks'], 'readonly');
@@ -218,8 +291,18 @@ async function getSessionChunks(sessionId) {
  * @returns {Promise<object>} - Chunk object
  */
 async function getChunkByEmbeddingId(embeddingId) {
+    if (!isBrowserEnvironment()) {
+        console.warn('[RAG Storage] IndexedDB not available, returning null');
+        return null;
+    }
+
     if (!ragDB) {
         await initRAGStorage();
+    }
+
+    if (!ragDB) {
+        console.warn('[RAG Storage] Failed to initialize database');
+        return null;
     }
 
     const transaction = ragDB.transaction(['chunks'], 'readonly');
@@ -238,8 +321,18 @@ async function getChunkByEmbeddingId(embeddingId) {
  * @param {string} sessionId - Session ID to delete
  */
 async function deleteSessionData(sessionId) {
+    if (!isBrowserEnvironment()) {
+        console.warn('[RAG Storage] IndexedDB not available, skipping delete');
+        return;
+    }
+
     if (!ragDB) {
         await initRAGStorage();
+    }
+
+    if (!ragDB) {
+        console.warn('[RAG Storage] Failed to initialize database');
+        return;
     }
 
     const transaction = ragDB.transaction(['embeddings', 'chunks'], 'readwrite');
@@ -277,8 +370,18 @@ async function deleteSessionData(sessionId) {
  * Clear all RAG data (embeddings and chunks)
  */
 async function clearAllRAGData() {
+    if (!isBrowserEnvironment()) {
+        console.warn('[RAG Storage] IndexedDB not available, skipping clear');
+        return;
+    }
+
     if (!ragDB) {
         await initRAGStorage();
+    }
+
+    if (!ragDB) {
+        console.warn('[RAG Storage] Failed to initialize database');
+        return;
     }
 
     const transaction = ragDB.transaction(['embeddings', 'chunks'], 'readwrite');
@@ -316,8 +419,24 @@ async function clearAllRAGData() {
  * Get storage statistics
  */
 async function getRAGStorageStats() {
+    if (!isBrowserEnvironment()) {
+        console.warn('[RAG Storage] IndexedDB not available, returning zero stats');
+        return {
+            embeddingsCount: 0,
+            chunksCount: 0,
+        };
+    }
+
     if (!ragDB) {
         await initRAGStorage();
+    }
+
+    if (!ragDB) {
+        console.warn('[RAG Storage] Failed to initialize database');
+        return {
+            embeddingsCount: 0,
+            chunksCount: 0,
+        };
     }
 
     const transaction = ragDB.transaction(['embeddings', 'chunks'], 'readonly');
@@ -348,8 +467,8 @@ async function getRAGStorageStats() {
     });
 }
 
-// Initialize RAG storage when module loads (renderer process only)
-if (typeof window !== 'undefined') {
+// Initialize RAG storage when module loads (browser environment only)
+if (isBrowserEnvironment()) {
     initRAGStorage().catch(console.error);
 }
 

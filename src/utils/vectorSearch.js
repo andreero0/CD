@@ -2,7 +2,61 @@
 const { HierarchicalNSW } = require('hnswlib-node');
 const path = require('path');
 const fs = require('fs');
-const { app } = require('electron');
+const { Mutex } = require('async-mutex');
+
+// Environment detection - only import app if available
+let app;
+try {
+    if (typeof process !== 'undefined' && process.versions && process.versions.electron && process.type === 'browser') {
+        app = require('electron').app;
+    }
+} catch (error) {
+    console.warn('[vectorSearch] Electron app not available, using fallback paths');
+}
+
+/**
+ * SafeHNSWIndex - Thread-safe wrapper around HierarchicalNSW
+ * Ensures write operations are serialized using a mutex
+ */
+class SafeHNSWIndex {
+    constructor(space, dimensions) {
+        this.index = new HierarchicalNSW(space, dimensions);
+        this.writeMutex = new Mutex();
+    }
+
+    initIndex(maxElements) {
+        return this.index.initIndex(maxElements);
+    }
+
+    async addPoint(vector, id) {
+        await this.writeMutex.runExclusive(() => {
+            this.index.addPoint(vector, id);
+        });
+    }
+
+    async addBatch(vectors, ids) {
+        await this.writeMutex.runExclusive(() => {
+            for (let i = 0; i < vectors.length; i++) {
+                this.index.addPoint(vectors[i], ids[i]);
+            }
+        });
+    }
+
+    // Queries can run concurrently (read-only)
+    searchKnn(vector, k) {
+        return this.index.searchKnn(vector, k);
+    }
+
+    async writeIndex(path) {
+        await this.writeMutex.runExclusive(() => {
+            this.index.writeIndexSync(path);
+        });
+    }
+
+    readIndex(path) {
+        return this.index.readIndexSync(path);
+    }
+}
 
 // HNSW index instance
 let hnswIndex = null;
@@ -14,15 +68,38 @@ let indexMetadata = {
 };
 
 /**
+ * Get the path for storing index files with fallback
+ * @param {string} filename - Filename for the index
+ * @returns {string} - Full path to the index file
+ */
+function getIndexPath(filename) {
+    try {
+        // Try Electron app path first
+        if (app && typeof app.getPath === 'function') {
+            return path.join(app.getPath('userData'), filename);
+        }
+    } catch (error) {
+        console.warn('[vectorSearch] app.getPath() not available, using fallback');
+    }
+
+    // Fallback to current working directory
+    const fallbackDir = path.join(process.cwd(), '.rag-data');
+    if (!fs.existsSync(fallbackDir)) {
+        fs.mkdirSync(fallbackDir, { recursive: true });
+    }
+    return path.join(fallbackDir, filename);
+}
+
+/**
  * Initialize the HNSW index
  * @param {number} dimensions - Dimensionality of vectors (default: 384 for all-MiniLM-L6-v2)
  * @param {number} maxElements - Maximum number of elements in the index
  */
 function initializeIndex(dimensions = 384, maxElements = 10000) {
     try {
-        console.log(`Initializing HNSW index (dimensions: ${dimensions}, max elements: ${maxElements})...`);
+        console.log(`[vectorSearch] Initializing HNSW index (dimensions: ${dimensions}, max elements: ${maxElements})...`);
 
-        hnswIndex = new HierarchicalNSW('cosine', dimensions);
+        hnswIndex = new SafeHNSWIndex('cosine', dimensions);
         hnswIndex.initIndex(maxElements);
 
         indexMetadata.numDimensions = dimensions;
@@ -30,10 +107,10 @@ function initializeIndex(dimensions = 384, maxElements = 10000) {
         indexMetadata.numElements = 0;
         indexMetadata.documentChunks = [];
 
-        console.log('HNSW index initialized successfully');
+        console.log('[vectorSearch] HNSW index initialized successfully');
         return true;
     } catch (error) {
-        console.error('Error initializing HNSW index:', error);
+        console.error('[vectorSearch] Error initializing HNSW index:', error);
         throw error;
     }
 }
@@ -42,67 +119,131 @@ function initializeIndex(dimensions = 384, maxElements = 10000) {
  * Add a document chunk with its embedding to the index
  * @param {number[]} embedding - Embedding vector
  * @param {object} metadata - Chunk metadata (text, index, sessionId, etc.)
- * @returns {number} - Index ID of the added element
+ * @returns {Promise<number>} - Index ID of the added element
  */
-function addToIndex(embedding, metadata) {
-    if (!hnswIndex) {
-        throw new Error('HNSW index not initialized. Call initializeIndex() first.');
-    }
-
-    if (!embedding || !Array.isArray(embedding) || embedding.length !== indexMetadata.numDimensions) {
-        throw new Error(`Invalid embedding. Expected array of length ${indexMetadata.numDimensions}`);
-    }
-
+async function addToIndex(embedding, metadata) {
     try {
-        const elementId = indexMetadata.numElements;
+        if (!hnswIndex) {
+            throw new Error('HNSW index not initialized. Call initializeIndex() first.');
+        }
 
-        // Add to HNSW index
-        hnswIndex.addPoint(embedding, elementId);
+        // Validate embedding
+        if (!embedding || !Array.isArray(embedding)) {
+            throw new Error('Invalid embedding: must be an array');
+        }
 
-        // Store metadata
-        indexMetadata.documentChunks.push({
-            id: elementId,
-            ...metadata,
-        });
+        if (embedding.length !== indexMetadata.numDimensions) {
+            throw new Error(`Invalid embedding dimensions: expected ${indexMetadata.numDimensions}, got ${embedding.length}`);
+        }
 
-        indexMetadata.numElements++;
+        // Validate metadata
+        if (!metadata || typeof metadata !== 'object') {
+            throw new Error('Invalid metadata: must be an object');
+        }
 
-        console.log(`Added chunk to index (ID: ${elementId}, total: ${indexMetadata.numElements})`);
+        // Use the same mutex to protect both HNSW index and metadata operations
+        // This ensures atomic ID assignment and prevents race conditions
+        const elementId = await Promise.race([
+            hnswIndex.writeMutex.runExclusive(() => {
+                const id = indexMetadata.numElements;
+                
+                // Add to HNSW index
+                hnswIndex.index.addPoint(embedding, id);
+                
+                // Store metadata
+                indexMetadata.documentChunks.push({
+                    id: id,
+                    ...metadata,
+                });
+                
+                indexMetadata.numElements++;
+                
+                return id;
+            }),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('addToIndex operation timed out after 10s')), 10000)
+            )
+        ]);
+
+        console.log(`[vectorSearch] Added chunk to index (ID: ${elementId}, total: ${indexMetadata.numElements})`);
         return elementId;
     } catch (error) {
-        console.error('Error adding to index:', error);
-        throw error;
+        console.error('[vectorSearch] Error adding to index:', error.message, error.stack);
+        throw new Error(`Failed to add to index: ${error.message}`);
     }
 }
 
 /**
  * Add multiple document chunks to the index in batch
  * @param {Array<{embedding: number[], metadata: object}>} chunks - Array of chunks with embeddings and metadata
- * @returns {number[]} - Array of index IDs
+ * @returns {Promise<number[]>} - Array of index IDs
  */
-function addBatchToIndex(chunks) {
-    if (!hnswIndex) {
-        throw new Error('HNSW index not initialized. Call initializeIndex() first.');
-    }
-
-    if (!Array.isArray(chunks) || chunks.length === 0) {
-        throw new Error('Invalid chunks array');
-    }
-
+async function addBatchToIndex(chunks) {
     try {
-        console.log(`Adding ${chunks.length} chunks to index in batch...`);
-        const ids = [];
-
-        for (const chunk of chunks) {
-            const id = addToIndex(chunk.embedding, chunk.metadata);
-            ids.push(id);
+        if (!hnswIndex) {
+            throw new Error('HNSW index not initialized. Call initializeIndex() first.');
         }
 
-        console.log(`Successfully added ${ids.length} chunks to index`);
+        // Validate input
+        if (!Array.isArray(chunks) || chunks.length === 0) {
+            throw new Error('Invalid chunks array: must be non-empty array');
+        }
+
+        console.log(`[vectorSearch] Adding ${chunks.length} chunks to index in batch...`);
+        
+        // Use mutex to protect the entire batch operation with timeout
+        // This ensures all chunks in the batch get consecutive IDs atomically
+        const ids = await Promise.race([
+            hnswIndex.writeMutex.runExclusive(() => {
+                const batchIds = [];
+                
+                for (let i = 0; i < chunks.length; i++) {
+                    const chunk = chunks[i];
+                    
+                    // Validate chunk structure
+                    if (!chunk || typeof chunk !== 'object') {
+                        throw new Error(`Invalid chunk at index ${i}: must be an object`);
+                    }
+                    
+                    if (!chunk.embedding || !Array.isArray(chunk.embedding)) {
+                        throw new Error(`Invalid embedding at chunk ${i}: must be an array`);
+                    }
+                    
+                    if (chunk.embedding.length !== indexMetadata.numDimensions) {
+                        throw new Error(`Invalid embedding dimensions at chunk ${i}: expected ${indexMetadata.numDimensions}, got ${chunk.embedding.length}`);
+                    }
+                    
+                    if (!chunk.metadata || typeof chunk.metadata !== 'object') {
+                        throw new Error(`Invalid metadata at chunk ${i}: must be an object`);
+                    }
+                    
+                    const id = indexMetadata.numElements;
+                    
+                    // Add to HNSW index
+                    hnswIndex.index.addPoint(chunk.embedding, id);
+                    
+                    // Store metadata
+                    indexMetadata.documentChunks.push({
+                        id: id,
+                        ...chunk.metadata,
+                    });
+                    
+                    indexMetadata.numElements++;
+                    batchIds.push(id);
+                }
+                
+                return batchIds;
+            }),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error(`Batch add operation timed out after 10s (${chunks.length} chunks)`)), 10000)
+            )
+        ]);
+
+        console.log(`[vectorSearch] Successfully added ${ids.length} chunks to index`);
         return ids;
     } catch (error) {
-        console.error('Error adding batch to index:', error);
-        throw error;
+        console.error('[vectorSearch] Error adding batch to index:', error.message, error.stack);
+        throw new Error(`Failed to add batch to index: ${error.message}`);
     }
 }
 
@@ -114,25 +255,45 @@ function addBatchToIndex(chunks) {
  * @returns {Array<{id: number, score: number, metadata: object}>} - Array of search results
  */
 function search(queryEmbedding, k = 5, minScore = 0.6) {
-    if (!hnswIndex) {
-        throw new Error('HNSW index not initialized or empty');
-    }
-
-    if (indexMetadata.numElements === 0) {
-        console.log('Index is empty, returning no results');
-        return [];
-    }
-
-    if (!queryEmbedding || !Array.isArray(queryEmbedding) || queryEmbedding.length !== indexMetadata.numDimensions) {
-        throw new Error(`Invalid query embedding. Expected array of length ${indexMetadata.numDimensions}`);
-    }
-
     try {
+        if (!hnswIndex) {
+            throw new Error('HNSW index not initialized or empty');
+        }
+
+        if (indexMetadata.numElements === 0) {
+            console.log('[vectorSearch] Index is empty, returning no results');
+            return [];
+        }
+
+        // Validate query embedding
+        if (!queryEmbedding || !Array.isArray(queryEmbedding)) {
+            throw new Error('Invalid query embedding: must be an array');
+        }
+
+        if (queryEmbedding.length !== indexMetadata.numDimensions) {
+            throw new Error(`Invalid query embedding dimensions: expected ${indexMetadata.numDimensions}, got ${queryEmbedding.length}`);
+        }
+
+        // Validate k
+        if (typeof k !== 'number' || k < 1) {
+            throw new Error('Invalid k: must be a positive number');
+        }
+
+        // Validate minScore
+        if (typeof minScore !== 'number' || minScore < 0 || minScore > 1) {
+            throw new Error('Invalid minScore: must be a number between 0 and 1');
+        }
+
         // Ensure k doesn't exceed number of elements
         const actualK = Math.min(k, indexMetadata.numElements);
 
-        // Search for nearest neighbors
+        // Search for nearest neighbors (read-only, can run concurrently)
         const result = hnswIndex.searchKnn(queryEmbedding, actualK);
+
+        // Validate search result
+        if (!result || !result.neighbors || !result.distances) {
+            throw new Error('Invalid search result from HNSW index');
+        }
 
         // Convert cosine distance to similarity and filter by minScore
         // Note: hnswlib returns distances, not similarities
@@ -146,6 +307,12 @@ function search(queryEmbedding, k = 5, minScore = 0.6) {
 
             if (similarity >= minScore) {
                 const metadata = indexMetadata.documentChunks[neighborId];
+                
+                if (!metadata) {
+                    console.warn(`[vectorSearch] Missing metadata for neighbor ${neighborId}, skipping`);
+                    continue;
+                }
+                
                 results.push({
                     id: neighborId,
                     score: similarity,
@@ -155,72 +322,143 @@ function search(queryEmbedding, k = 5, minScore = 0.6) {
             }
         }
 
-        console.log(`Search found ${results.length} results (above threshold ${minScore})`);
+        console.log(`[vectorSearch] Search found ${results.length} results (above threshold ${minScore})`);
         return results;
     } catch (error) {
-        console.error('Error searching index:', error);
-        throw error;
+        console.error('[vectorSearch] Error searching index:', error.message, error.stack);
+        throw new Error(`Failed to search index: ${error.message}`);
     }
 }
 
 /**
  * Save the HNSW index to disk
  * @param {string} filename - Filename to save the index
+ * @returns {Promise<string>} - Path where index was saved
  */
-function saveIndex(filename = 'hnsw_index.dat') {
-    if (!hnswIndex) {
-        throw new Error('HNSW index not initialized');
-    }
-
+async function saveIndex(filename = 'hnsw_index.dat') {
     try {
-        const userDataPath = app.getPath('userData');
-        const indexPath = path.join(userDataPath, filename);
-        const metadataPath = path.join(userDataPath, 'hnsw_metadata.json');
+        if (!hnswIndex) {
+            throw new Error('HNSW index not initialized');
+        }
 
-        // Save HNSW index
-        hnswIndex.writeIndex(indexPath);
+        const indexPath = getIndexPath(filename);
+        const metadataPath = getIndexPath('hnsw_metadata.json');
 
-        // Save metadata
-        fs.writeFileSync(metadataPath, JSON.stringify(indexMetadata, null, 2));
+        // Validate paths
+        if (!indexPath || !metadataPath) {
+            throw new Error('Failed to resolve index paths');
+        }
 
-        console.log(`Index saved to ${indexPath}`);
+        // Save HNSW index (thread-safe) with timeout
+        await Promise.race([
+            hnswIndex.writeIndex(indexPath),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Index write timed out after 10s')), 10000)
+            )
+        ]);
+
+        // Save metadata with error handling
+        try {
+            fs.writeFileSync(metadataPath, JSON.stringify(indexMetadata, null, 2));
+        } catch (metadataError) {
+            console.error('[vectorSearch] Error saving metadata:', metadataError.message);
+            // Try to save without formatting as fallback
+            fs.writeFileSync(metadataPath, JSON.stringify(indexMetadata));
+        }
+
+        console.log(`[vectorSearch] Index saved to ${indexPath}`);
         return indexPath;
     } catch (error) {
-        console.error('Error saving index:', error);
-        throw error;
+        console.error('[vectorSearch] Error saving index:', error.message, error.stack);
+        throw new Error(`Failed to save index: ${error.message}`);
     }
 }
 
 /**
  * Load the HNSW index from disk
  * @param {string} filename - Filename to load the index from
+ * @returns {boolean} - True if loaded successfully, false otherwise
  */
 function loadIndex(filename = 'hnsw_index.dat') {
     try {
-        const userDataPath = app.getPath('userData');
-        const indexPath = path.join(userDataPath, filename);
-        const metadataPath = path.join(userDataPath, 'hnsw_metadata.json');
+        const indexPath = getIndexPath(filename);
+        const metadataPath = getIndexPath('hnsw_metadata.json');
+
+        // Validate paths
+        if (!indexPath || !metadataPath) {
+            console.error('[vectorSearch] Failed to resolve index paths');
+            return false;
+        }
 
         if (!fs.existsSync(indexPath) || !fs.existsSync(metadataPath)) {
-            console.log('No saved index found, initializing new index');
+            console.log('[vectorSearch] No saved index found, initializing new index');
             return false;
         }
 
         // Load metadata first
-        const savedMetadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+        let savedMetadata;
+        try {
+            const metadataContent = fs.readFileSync(metadataPath, 'utf8');
+            savedMetadata = JSON.parse(metadataContent);
+        } catch (metadataError) {
+            console.error('[vectorSearch] Error loading metadata:', metadataError.message);
+            console.log('[vectorSearch] Metadata file may be corrupted, deleting and starting fresh');
+            
+            // Delete corrupted files
+            try {
+                if (fs.existsSync(indexPath)) fs.unlinkSync(indexPath);
+                if (fs.existsSync(metadataPath)) fs.unlinkSync(metadataPath);
+            } catch (deleteError) {
+                console.error('[vectorSearch] Error deleting corrupted files:', deleteError.message);
+            }
+            
+            return false;
+        }
+
+        // Validate metadata structure
+        if (!savedMetadata.numDimensions || !savedMetadata.maxElements) {
+            console.error('[vectorSearch] Invalid metadata structure');
+            return false;
+        }
 
         // Initialize new index with saved dimensions
-        hnswIndex = new HierarchicalNSW('cosine', savedMetadata.numDimensions);
-        hnswIndex.initIndex(savedMetadata.maxElements);
-        hnswIndex.readIndex(indexPath);
+        try {
+            hnswIndex = new SafeHNSWIndex('cosine', savedMetadata.numDimensions);
+            hnswIndex.initIndex(savedMetadata.maxElements);
+            hnswIndex.readIndex(indexPath);
+        } catch (indexError) {
+            console.error('[vectorSearch] Error loading index file:', indexError.message);
+            console.log('[vectorSearch] Index file may be corrupted, deleting and starting fresh');
+            
+            // Delete corrupted files
+            try {
+                if (fs.existsSync(indexPath)) fs.unlinkSync(indexPath);
+                if (fs.existsSync(metadataPath)) fs.unlinkSync(metadataPath);
+            } catch (deleteError) {
+                console.error('[vectorSearch] Error deleting corrupted files:', deleteError.message);
+            }
+            
+            hnswIndex = null;
+            return false;
+        }
 
         // Restore metadata
         indexMetadata = savedMetadata;
 
-        console.log(`Index loaded from ${indexPath} (${indexMetadata.numElements} elements)`);
+        console.log(`[vectorSearch] Index loaded from ${indexPath} (${indexMetadata.numElements} elements)`);
         return true;
     } catch (error) {
-        console.error('Error loading index:', error);
+        console.error('[vectorSearch] Error loading index:', error.message, error.stack);
+        
+        // Clean up on error
+        hnswIndex = null;
+        indexMetadata = {
+            numDimensions: 384,
+            maxElements: 10000,
+            numElements: 0,
+            documentChunks: [],
+        };
+        
         return false;
     }
 }
@@ -230,7 +468,7 @@ function loadIndex(filename = 'hnsw_index.dat') {
  */
 function clearIndex() {
     if (hnswIndex) {
-        console.log('Clearing HNSW index...');
+        console.log('[vectorSearch] Clearing HNSW index...');
         hnswIndex = null;
     }
 
@@ -251,21 +489,19 @@ function clearIndex() {
  */
 function removeSessionChunks(sessionId) {
     if (!hnswIndex) {
-        console.log('Index not initialized, nothing to remove');
+        console.log('[vectorSearch] Index not initialized, nothing to remove');
         return;
     }
 
-    console.log(`Removing chunks for session ${sessionId}...`);
+    console.log(`[vectorSearch] Removing chunks for session ${sessionId}...`);
 
     // Filter out chunks from the session
-    const remainingChunks = indexMetadata.documentChunks.filter(
-        chunk => chunk.sessionId !== sessionId
-    );
+    const remainingChunks = indexMetadata.documentChunks.filter((chunk) => chunk.sessionId !== sessionId);
 
     const removedCount = indexMetadata.documentChunks.length - remainingChunks.length;
 
     if (removedCount > 0) {
-        console.log(`Found ${removedCount} chunks to remove. Rebuilding index...`);
+        console.log(`[vectorSearch] Found ${removedCount} chunks to remove. Rebuilding index...`);
 
         // Need to rebuild the index without the removed chunks
         // This is a limitation of hnswlib - no direct element removal
@@ -277,12 +513,12 @@ function removeSessionChunks(sessionId) {
 
         // Re-add remaining chunks
         // Note: We need to re-fetch embeddings for these chunks
-        console.log(`Rebuilding index with ${remainingChunks.length} remaining chunks`);
+        console.log(`[vectorSearch] Rebuilding index with ${remainingChunks.length} remaining chunks`);
 
         // Update metadata
         indexMetadata.documentChunks = remainingChunks;
     } else {
-        console.log('No chunks found for this session');
+        console.log('[vectorSearch] No chunks found for this session');
     }
 }
 
@@ -309,4 +545,6 @@ module.exports = {
     clearIndex,
     removeSessionChunks,
     getIndexStats,
+    getIndexPath,
+    SafeHNSWIndex,
 };
