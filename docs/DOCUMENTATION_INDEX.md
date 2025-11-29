@@ -30,8 +30,16 @@ This document provides a comprehensive index of all documentation in this reposi
 ### Feature Implementations
 - **[Coaching Loop Implementation](./implementations/COACHING_LOOP_IMPLEMENTATION.md)** - Real-time coaching feedback system
 - **[Correlation ID Implementation](./implementations/CORRELATION_ID_IMPLEMENTATION.md)** - Speaker attribution and timing fixes
-- **[RAG System](./RAG_SYSTEM.md)** - Retrieval-Augmented Generation with local embeddings
-- **[RAG Usage Examples](./RAG_USAGE_EXAMPLES.md)** - Practical RAG integration examples
+- **[Context Injection Implementation](./implementations/CONTEXT_INJECTION_IMPLEMENTATION.md)** - Debouncing and context management
+- **[Transcript Buffer Implementation](./implementations/TRANSCRIPT_BUFFER_IMPLEMENTATION.md)** - Word threshold and speaker change handling
+- **[Integration Summary](./implementations/INTEGRATION_SUMMARY.md)** - Complete transcript buffering system integration
+- **[Integration Verification](./implementations/INTEGRATION_VERIFICATION.md)** - Final integration verification report
+- **[Code Additions Summary](./implementations/CODE_ADDITIONS_SUMMARY.md)** - Exact code additions for transcript features
+- **[RAG System](./implementations/RAG_SYSTEM.md)** - Retrieval-Augmented Generation with local embeddings
+
+### User Guides
+- **[RAG Usage Examples](./guides/RAG_USAGE_EXAMPLES.md)** - Practical RAG integration examples
+- **[Quick Start Coaching Loop](./guides/QUICK_START_COACHING_LOOP.md)** - Coaching loop quick start
 
 ### Setup Guides
 - **[BlackHole Setup](./setup/BLACKHOLE_SETUP.md)** - macOS system audio capture configuration
@@ -41,7 +49,7 @@ This document provides a comprehensive index of all documentation in this reposi
 ## System Architecture
 
 ### Core Systems
-- **[RAG System Architecture](./RAG_SYSTEM.md)** - Document retrieval and context management
+- **[RAG System Architecture](./implementations/RAG_SYSTEM.md)** - Document retrieval and context management
 - **[Coaching Loop Architecture](./implementations/COACHING_LOOP_IMPLEMENTATION.md)** - State machine and feedback system
 
 ### Technical Details
@@ -60,7 +68,9 @@ This document provides a comprehensive index of all documentation in this reposi
 
 ### Comprehensive Reports
 - **[Implementation Report](./agent-reports/IMPLEMENTATION_REPORT.md)** - Coaching loop and state machine
-- **[Implementation Summary](./agent-reports/IMPLEMENTATION_SUMMARY.md)** - Timing and speaker attribution fixes
+- **[Context Injection Summary](./agent-reports/CONTEXT_INJECTION_SUMMARY.md)** - Context injection with debouncing implementation
+- **[Implementation Complete](./agent-reports/IMPLEMENTATION_COMPLETE.md)** - Transcript buffer enhancements completion report
+- **[Documentation Cleanup Summary](./agent-reports/DOCUMENTATION_CLEANUP_SUMMARY.md)** - Documentation reorganization summary
 - **[Improvements Summary](./agent-reports/IMPROVEMENTS_SUMMARY.md)** - All improvements and fixes
 - **[RAG Implementation Summary](./agent-reports/RAG_IMPLEMENTATION_SUMMARY.md)** - RAG system implementation details
 
@@ -78,6 +88,8 @@ This document provides a comprehensive index of all documentation in this reposi
 
 ### Reference Materials
 - **[Code Explanation](./reference/CODE_EXPLANATION.md)** - Detailed code walkthrough
+- **[Configuration Guide](./reference/CONFIGURATION.md)** - Transcript buffering configuration
+- **[Verification Checklist](./reference/VERIFICATION_CHECKLIST.md)** - Implementation verification checklist
 - **[Correlation ID Implementation](./implementations/CORRELATION_ID_IMPLEMENTATION.md)** - Technical implementation details
 
 ---
@@ -87,27 +99,37 @@ This document provides a comprehensive index of all documentation in this reposi
 ```
 docs/
 ├── DOCUMENTATION_INDEX.md          # This file
-├── RAG_SYSTEM.md                   # RAG architecture
-├── RAG_USAGE_EXAMPLES.md           # RAG examples
+├── CLEANUP_2024-11-28.md           # Documentation cleanup summary
 ├── agent-reports/                  # Agent implementation reports
 │   ├── AGENT_6_IMPLEMENTATION_GUIDE.md
 │   ├── AGENT_6_QUICK_REFERENCE.md
 │   ├── AGENT_9_SUMMARY.txt
+│   ├── CONTEXT_INJECTION_SUMMARY.md
+│   ├── DOCUMENTATION_CLEANUP_SUMMARY.md
 │   ├── IMPLEMENTATION_AGENT_11_SUMMARY.md
+│   ├── IMPLEMENTATION_COMPLETE.md
 │   ├── IMPLEMENTATION_REPORT.md
-│   ├── IMPLEMENTATION_SUMMARY.md
 │   ├── IMPROVEMENTS_SUMMARY.md
 │   ├── RAG_IMPLEMENTATION_SUMMARY.md
 │   └── QUICK_REFERENCE.md
 ├── development/                    # Development documentation
 │   └── PR_DESCRIPTION.md
 ├── guides/                         # User and developer guides
-│   └── QUICK_START_COACHING_LOOP.md
+│   ├── QUICK_START_COACHING_LOOP.md
+│   └── RAG_USAGE_EXAMPLES.md
 ├── implementations/                # Technical implementation docs
 │   ├── COACHING_LOOP_IMPLEMENTATION.md
-│   └── CORRELATION_ID_IMPLEMENTATION.md
+│   ├── CODE_ADDITIONS_SUMMARY.md
+│   ├── CONTEXT_INJECTION_IMPLEMENTATION.md
+│   ├── CORRELATION_ID_IMPLEMENTATION.md
+│   ├── INTEGRATION_SUMMARY.md
+│   ├── INTEGRATION_VERIFICATION.md
+│   ├── RAG_SYSTEM.md
+│   └── TRANSCRIPT_BUFFER_IMPLEMENTATION.md
 ├── reference/                      # Reference materials
-│   └── CODE_EXPLANATION.md
+│   ├── CODE_EXPLANATION.md
+│   ├── CONFIGURATION.md
+│   └── VERIFICATION_CHECKLIST.md
 ├── security/                       # Security documentation
 │   └── SECURITY_FIXES.md
 └── setup/                          # Setup and configuration
@@ -150,7 +172,10 @@ Configuration and setup guides for external dependencies and system requirements
 → Read [AGENTS.md](../AGENTS.md) for guidelines, check [implementations/](./implementations/) for examples
 
 ### "I want to use the RAG system"
-→ [RAG_SYSTEM.md](./RAG_SYSTEM.md) for architecture, [RAG_USAGE_EXAMPLES.md](./RAG_USAGE_EXAMPLES.md) for code
+→ [RAG_SYSTEM.md](./implementations/RAG_SYSTEM.md) for architecture, [RAG_USAGE_EXAMPLES.md](./guides/RAG_USAGE_EXAMPLES.md) for code
+
+### "I want to configure the system"
+→ [CONFIGURATION.md](./reference/CONFIGURATION.md) for all configuration options
 
 ### "I want to fix audio capture on macOS"
 → [setup/BLACKHOLE_SETUP.md](./setup/BLACKHOLE_SETUP.md)
@@ -175,5 +200,5 @@ When adding new documentation:
 
 ---
 
-**Last Updated**: 2024-11-21
+**Last Updated**: 2024-11-28
 **Maintained By**: Development Team

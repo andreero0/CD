@@ -1755,33 +1755,85 @@ function cleanupExpiredCorrelations() {
 // ============================================================================
 
 /**
- * Queries RAG system if question is long enough
- * @param {string} questionText - Interviewer's question
+ * Query RAG system using intent-based classification
+ * @param {string} question - The question text
  * @param {string} sessionId - Current session ID
- * @returns {Promise<object>} - RAG result
+ * @param {Array} conversationHistory - Recent conversation turns (optional)
+ * @returns {Promise<object>} - RAG result or skip indicator
  */
-async function queryRAGIfNeeded(questionText, sessionId) {
-    const wordCount = countWords(questionText);
-
-    // Only query RAG for questions > 10 words
-    if (wordCount <= 10) {
-        const { sessionLogger } = require('./sessionLogger');
-        sessionLogger.log('RAG', `Skipping RAG query - question too short (${wordCount} words)`);
-        return { usedRAG: false, context: null };
+async function queryRAGIfNeeded(question, sessionId, conversationHistory = []) {
+    // Classify query intent using pattern matching and semantic signals
+    const signals = {
+        // Time-sensitive queries need fresh retrieval
+        needsFreshInfo: /latest|current|today|now|recent|2024|2025/i.test(question),
+        
+        // Factual patterns benefit from retrieval
+        isFactual: /what is|who is|when did|how many|define|explain|describe/i.test(question),
+        
+        // Creative/opinion queries skip retrieval
+        isCreative: /write|create|imagine|opinion|think about|feel about/i.test(question),
+        
+        // Named entities suggest factual grounding needed
+        hasEntities: /[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*/.test(question)
+    };
+    
+    // Skip retrieval for creative queries
+    if (signals.isCreative && !signals.needsFreshInfo) {
+        console.log('[RAG] Skipping RAG - creative/opinion query');
+        return {
+            usedRAG: false,
+            skipped: true,
+            reason: 'creative_query',
+            strategy: 'direct'
+        };
     }
-
-    try {
-        const ragResult = await retrieveContext(questionText, sessionId, {
-            topK: 5,
-            minScore: 0.6,
-            maxTokens: 400
-        });
-
-        return ragResult;
-    } catch (error) {
-        console.error('[RAG] Query failed:', error);
-        return { usedRAG: false, context: null };
+    
+    // Retrieve for factual, time-sensitive, or entity-rich queries
+    if (signals.needsFreshInfo || signals.isFactual || signals.hasEntities) {
+        try {
+            // Call retrieveContext with current implementation options
+            // Note: minResults, formatAsXML, and lowConfidence will be added in tasks 7-8
+            const result = await retrieveContext(question, sessionId, {
+                topK: 5,
+                minScore: 0.70, // Calibrated for all-MiniLM-L6-v2 (will be used in task 8)
+                maxTokens: 500, // Current implementation limit
+                includeMetadata: true
+            });
+            
+            // Check if retrieval was successful
+            if (result.usedRAG) {
+                console.log(`[RAG] Retrieved ${result.chunks?.length || 0} chunks (avg score: ${result.avgScore?.toFixed(2) || 'N/A'})`);
+                return result;
+            } else if (result.fallback) {
+                console.log(`[RAG] Fallback mode: ${result.reason}`);
+                return {
+                    usedRAG: false,
+                    fallback: true,
+                    reason: result.reason || 'retrieval_failed',
+                    strategy: 'context-only'
+                };
+            }
+            
+            return result;
+        } catch (error) {
+            console.error('[RAG] Error retrieving context:', error);
+            return {
+                usedRAG: false,
+                fallback: true,
+                reason: 'error',
+                error: error.message
+            };
+        }
     }
+    
+    // Default: skip retrieval for ambiguous cases
+    console.log('[RAG] Skipping RAG - query does not match retrieval criteria');
+    return {
+        usedRAG: false,
+        skipped: true,
+        reason: 'no_retrieval_needed',
+        strategy: 'context-only'
+    };
 }
 
 /**

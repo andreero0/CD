@@ -16,31 +16,42 @@ async function getAllDocuments() {
     try {
         const windows = BrowserWindow.getAllWindows();
         if (windows.length === 0) {
-            console.warn('No browser windows available for document retrieval');
+            console.warn('[DocumentRetriever] No browser windows available for document retrieval');
             return [];
         }
 
-        // Execute code in renderer to fetch documents from IndexedDB
-        const documents = await windows[0].webContents.executeJavaScript(`
-            (async function() {
-                try {
-                    // Import documentDB module
-                    const { documentDB } = await import('./utils/documentDB.js');
+        // Execute code in renderer to fetch documents from IndexedDB with timeout
+        const documents = await Promise.race([
+            windows[0].webContents.executeJavaScript(`
+                (async function() {
+                    try {
+                        // Import documentDB module
+                        const { documentDB } = await import('./utils/documentDB.js');
 
-                    // Get all documents
-                    const docs = await documentDB.getAllDocuments();
-                    console.log('Retrieved', docs.length, 'documents from IndexedDB');
-                    return docs;
-                } catch (error) {
-                    console.error('Error fetching documents from IndexedDB:', error);
-                    return [];
-                }
-            })()
-        `);
+                        // Get all documents
+                        const docs = await documentDB.getAllDocuments();
+                        console.log('Retrieved', docs.length, 'documents from IndexedDB');
+                        return docs;
+                    } catch (error) {
+                        console.error('Error fetching documents from IndexedDB:', error);
+                        return [];
+                    }
+                })()
+            `),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Document retrieval timed out after 10s')), 10000)
+            )
+        ]);
 
-        return documents || [];
+        // Validate result
+        if (!Array.isArray(documents)) {
+            console.error('[DocumentRetriever] Invalid documents result, expected array');
+            return [];
+        }
+
+        return documents;
     } catch (error) {
-        console.error('Error retrieving documents:', error);
+        console.error('[DocumentRetriever] Error retrieving documents:', error.message, error.stack);
         return [];
     }
 }
@@ -137,15 +148,31 @@ async function formatAllDocuments(options = {}) {
     } = options;
 
     try {
-        // Get all documents
-        const documents = await getCachedDocuments(forceRefresh);
+        // Get all documents with timeout
+        const documents = await Promise.race([
+            getCachedDocuments(forceRefresh),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Document fetch timed out after 10s')), 10000)
+            )
+        ]);
 
         if (!documents || documents.length === 0) {
-            console.log('No documents available for context');
+            console.log('[DocumentRetriever] No documents available for context');
             return '';
         }
 
-        console.log(`Formatting ${documents.length} document(s) for AI context...`);
+        console.log(`[DocumentRetriever] Formatting ${documents.length} document(s) for AI context...`);
+
+        // Validate options
+        if (typeof maxTotalTokens !== 'number' || maxTotalTokens < 1) {
+            console.warn('[DocumentRetriever] Invalid maxTotalTokens, using default');
+            maxTotalTokens = 10000;
+        }
+
+        if (typeof maxTokensPerDoc !== 'number' || maxTokensPerDoc < 1) {
+            console.warn('[DocumentRetriever] Invalid maxTokensPerDoc, using default');
+            maxTokensPerDoc = 3000;
+        }
 
         // Calculate total tokens available per document
         const tokensPerDoc = Math.min(
@@ -153,8 +180,24 @@ async function formatAllDocuments(options = {}) {
             Math.floor(maxTotalTokens / documents.length)
         );
 
-        // Format each document
-        const formattedDocs = documents.map(doc => formatDocument(doc, tokensPerDoc));
+        // Format each document with error handling
+        const formattedDocs = [];
+        for (const doc of documents) {
+            try {
+                const formatted = formatDocument(doc, tokensPerDoc);
+                if (formatted) {
+                    formattedDocs.push(formatted);
+                }
+            } catch (formatError) {
+                console.error('[DocumentRetriever] Error formatting document:', formatError.message);
+                // Continue with other documents
+            }
+        }
+
+        if (formattedDocs.length === 0) {
+            console.log('[DocumentRetriever] No documents could be formatted');
+            return '';
+        }
 
         // Combine all documents
         const combinedText = formattedDocs.join('\n\n');
@@ -163,7 +206,7 @@ async function formatAllDocuments(options = {}) {
         const totalTokens = estimateTokens(combinedText);
 
         if (totalTokens > maxTotalTokens) {
-            console.warn(`Documents exceed max tokens (${totalTokens} > ${maxTotalTokens}), truncating...`);
+            console.warn(`[DocumentRetriever] Documents exceed max tokens (${totalTokens} > ${maxTotalTokens}), truncating...`);
 
             // Truncate to fit max total tokens
             const targetLength = maxTotalTokens * 4;
@@ -175,13 +218,13 @@ ${truncated}
 </documents>`;
         }
 
-        console.log(`Formatted ${documents.length} document(s) (${totalTokens} estimated tokens)`);
+        console.log(`[DocumentRetriever] Formatted ${formattedDocs.length} document(s) (${totalTokens} estimated tokens)`);
 
         return `<documents>
 ${combinedText}
 </documents>`;
     } catch (error) {
-        console.error('Error formatting documents:', error);
+        console.error('[DocumentRetriever] Error formatting documents:', error.message, error.stack);
         return '';
     }
 }

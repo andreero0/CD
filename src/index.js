@@ -33,15 +33,40 @@ app.whenReady().then(async () => {
     setupGeneralIpcHandlers();
 });
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', async () => {
     stopMacOSAudioCapture();
+    
+    // Save RAG index before closing
+    try {
+        const { saveRAGIndex } = require('./utils/ragController');
+        await saveRAGIndex();
+        console.log('[Lifecycle] RAG index saved on window-all-closed');
+    } catch (error) {
+        console.error('[Lifecycle] Error saving RAG index on window-all-closed:', error);
+    }
+    
     if (process.platform !== 'darwin') {
         app.quit();
     }
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', async (event) => {
     stopMacOSAudioCapture();
+    
+    // Prevent immediate quit to allow async operations
+    event.preventDefault();
+    
+    // Save RAG index before quitting
+    try {
+        const { saveRAGIndex } = require('./utils/ragController');
+        await saveRAGIndex();
+        console.log('[Lifecycle] RAG index saved on before-quit');
+    } catch (error) {
+        console.error('[Lifecycle] Error saving RAG index on before-quit:', error);
+    }
+    
+    // Now actually quit
+    app.exit(0);
 });
 
 app.on('activate', () => {
