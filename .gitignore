@@ -93,3 +93,6 @@ typings/
 out/
 .specstory
 .specstory/
+
+# RAG test data
+.rag-data/test_*.dat
