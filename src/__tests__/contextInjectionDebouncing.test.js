@@ -1,5 +1,5 @@
 const fc = require('fast-check');
-const { vi, describe, it, expect, beforeEach, afterEach } = require('vitest');
+// Vitest globals (describe, it, expect, vi, beforeEach, afterEach) are available without import
 
 // Mock electron before importing gemini
 const electronPath = require.resolve('electron');

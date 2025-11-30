@@ -7,6 +7,7 @@ const { processNewTurn, initializeRAG, retrieveContext } = require('./ragControl
 const { conversationState, STATES } = require('./conversationState');
 const { formatAllDocuments, clearDocumentCache } = require('./documentRetriever');
 const { generateCorrelationId, trackAudioChunk, resolveCorrelationId, clearAll: clearCorrelationData } = require('./audioCorrelation');
+const AudioCaptureManager = require('./audioCaptureManager');
 
 // Conversation tracking variables
 let currentSessionId = null;
@@ -612,6 +613,7 @@ function sendSpeakerContextIfNeeded(currentSpeaker, geminiSessionRef, force = fa
 
 // Audio capture variables
 let systemAudioProc = null;
+let audioCaptureManager = null;
 
 // AI response handling
 let messageBuffer = '';
@@ -1299,16 +1301,24 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
 
 function killExistingSystemAudioDump() {
     return new Promise(resolve => {
-        console.log('Checking for existing SystemAudioDump processes...');
+        console.log('Checking for existing SystemAudioDump processes (architecture-aware)...');
+
+        // Get current system architecture
+        const { getSystemArchitecture } = require('./architectureDetection');
+        const currentArch = getSystemArchitecture();
+        
+        console.log(`Current architecture: ${currentArch}`);
 
         // Kill any existing SystemAudioDump processes
+        // The -f flag matches the full command line, so it will find processes
+        // regardless of architecture (both x86_64 and arm64)
         const killProc = spawn('pkill', ['-f', 'SystemAudioDump'], {
             stdio: 'ignore',
         });
 
         killProc.on('close', code => {
             if (code === 0) {
-                console.log('Killed existing SystemAudioDump processes');
+                console.log('Killed existing SystemAudioDump processes (all architectures)');
             } else {
                 console.log('No existing SystemAudioDump processes found');
             }
@@ -1336,181 +1346,108 @@ async function startMacOSAudioCapture(geminiSessionRef) {
     // Kill any existing SystemAudioDump processes first
     await killExistingSystemAudioDump();
 
-    console.log('Starting macOS audio capture with SystemAudioDump...');
+    console.log('Starting macOS audio capture with AudioCaptureManager...');
 
-    const { app } = require('electron');
-    const path = require('path');
-
-    let systemAudioPath;
-    if (app.isPackaged) {
-        systemAudioPath = path.join(process.resourcesPath, 'SystemAudioDump');
-    } else {
-        systemAudioPath = path.join(__dirname, '../assets', 'SystemAudioDump');
+    // Create AudioCaptureManager instance if not already created
+    if (!audioCaptureManager) {
+        audioCaptureManager = new AudioCaptureManager({
+            maxRetries: 3
+        });
     }
 
-    console.log('SystemAudioDump path:', systemAudioPath);
-
-    // Verify the binary exists
-    if (!require('fs').existsSync(systemAudioPath)) {
-        throw new Error('SystemAudioDump binary not found at: ' + systemAudioPath);
+    // Initialize the manager
+    const initialized = await audioCaptureManager.initialize();
+    
+    if (!initialized) {
+        console.warn('AudioCaptureManager initialization failed, will attempt fallback methods');
     }
 
-    // Spawn SystemAudioDump with stealth options
-    const spawnOptions = {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: {
-            ...process.env,
-            // Set environment variables that might help with stealth
-            PROCESS_NAME: 'AudioService',
-            APP_NAME: 'System Audio Service',
-        },
-    };
+    // Audio processing constants
+    const CHUNK_DURATION = 0.1;
+    const SAMPLE_RATE = 24000;
+    const BYTES_PER_SAMPLE = 2;
+    const CHANNELS = 2;
+    const CHUNK_SIZE = SAMPLE_RATE * BYTES_PER_SAMPLE * CHANNELS * CHUNK_DURATION;
 
-    // On macOS, apply additional stealth measures
-    if (process.platform === 'darwin') {
-        spawnOptions.detached = false;
-        spawnOptions.windowsHide = false;
-    }
+    let audioBuffer = Buffer.alloc(0);
 
-    return new Promise((resolve, reject) => {
-        systemAudioProc = spawn(systemAudioPath, [], spawnOptions);
+    // Define audio data callback
+    const onAudioData = (data) => {
+        audioBuffer = Buffer.concat([audioBuffer, data]);
 
-        if (!systemAudioProc.pid) {
-            console.error('Failed to start SystemAudioDump');
-            reject(new Error('Failed to spawn SystemAudioDump process'));
-            return;
+        while (audioBuffer.length >= CHUNK_SIZE) {
+            const chunk = audioBuffer.slice(0, CHUNK_SIZE);
+            audioBuffer = audioBuffer.slice(CHUNK_SIZE);
+
+            const monoChunk = CHANNELS === 2 ? convertStereoToMono(chunk) : chunk;
+            const base64Data = monoChunk.toString('base64');
+            sendAudioToGemini(base64Data, geminiSessionRef);
+
+            if (process.env.DEBUG_AUDIO) {
+                console.log(`Processed audio chunk: ${chunk.length} bytes`);
+                saveDebugAudio(monoChunk, 'system_audio');
+            }
         }
 
-        console.log('SystemAudioDump started with PID:', systemAudioProc.pid);
+        const maxBufferSize = SAMPLE_RATE * BYTES_PER_SAMPLE * 1;
+        if (audioBuffer.length > maxBufferSize) {
+            audioBuffer = audioBuffer.slice(-maxBufferSize);
+        }
+    };
 
-        let stderrBuffer = '';
-        let hasReceivedAudio = false;
-        let startupTimeout = null;
-
-        const CHUNK_DURATION = 0.1;
-        const SAMPLE_RATE = 24000;
-        const BYTES_PER_SAMPLE = 2;
-        const CHANNELS = 2;
-        const CHUNK_SIZE = SAMPLE_RATE * BYTES_PER_SAMPLE * CHANNELS * CHUNK_DURATION;
-
-        let audioBuffer = Buffer.alloc(0);
-
-        systemAudioProc.stdout.on('data', data => {
-            // First audio data received - clear startup timeout
-            if (!hasReceivedAudio) {
-                hasReceivedAudio = true;
-                if (startupTimeout) {
-                    clearTimeout(startupTimeout);
-                    startupTimeout = null;
-                }
-                console.log('SystemAudioDump: Receiving audio data successfully');
-                resolve(true);
-            }
-
-            audioBuffer = Buffer.concat([audioBuffer, data]);
-
-            while (audioBuffer.length >= CHUNK_SIZE) {
-                const chunk = audioBuffer.slice(0, CHUNK_SIZE);
-                audioBuffer = audioBuffer.slice(CHUNK_SIZE);
-
-                const monoChunk = CHANNELS === 2 ? convertStereoToMono(chunk) : chunk;
-                const base64Data = monoChunk.toString('base64');
-                sendAudioToGemini(base64Data, geminiSessionRef);
-
-                if (process.env.DEBUG_AUDIO) {
-                    console.log(`Processed audio chunk: ${chunk.length} bytes`);
-                    saveDebugAudio(monoChunk, 'system_audio');
-                }
-            }
-
-            const maxBufferSize = SAMPLE_RATE * BYTES_PER_SAMPLE * 1;
-            if (audioBuffer.length > maxBufferSize) {
-                audioBuffer = audioBuffer.slice(-maxBufferSize);
-            }
+    try {
+        // Start audio capture with AudioCaptureManager
+        await audioCaptureManager.start(geminiSessionRef, onAudioData);
+        
+        // Keep reference to systemAudioProc for backward compatibility
+        systemAudioProc = audioCaptureManager.systemAudioProc;
+        
+        console.log('AudioCaptureManager: Audio capture started successfully');
+        return true;
+    } catch (error) {
+        console.error('AudioCaptureManager: Failed to start audio capture:', error.message);
+        
+        // Get diagnostic information from AudioCaptureManager
+        const { diagnoseSpawnError86 } = require('./errorDiagnostics');
+        const binaryPath = audioCaptureManager._getBinaryPath();
+        
+        // Check if this is error -86
+        const isError86 = error.code === 'ENOEXEC' || 
+                          error.errno === -86 || 
+                          (error.message && error.message.includes('-86'));
+        
+        let diagnosis;
+        if (isError86) {
+            // Get detailed diagnosis for error -86
+            diagnosis = await diagnoseSpawnError86(error, binaryPath);
+        } else {
+            // Generic error diagnosis
+            diagnosis = {
+                cause: 'unknown',
+                userMessage: error.message,
+                technicalDetails: `Error code: ${error.code}, errno: ${error.errno}`,
+                suggestedFix: 'Try restarting the application or check system logs for more details.',
+                canRetry: true,
+                fallbackAvailable: true
+            };
+        }
+        
+        // Send structured error data to renderer via IPC
+        sendToRenderer('audio-capture-error', {
+            title: 'Audio Capture Failed',
+            message: diagnosis.userMessage,
+            cause: diagnosis.cause,
+            technicalDetails: diagnosis.technicalDetails,
+            suggestedFix: diagnosis.suggestedFix,
+            canRetry: diagnosis.canRetry,
+            fallbackAvailable: diagnosis.fallbackAvailable
         });
-
-        systemAudioProc.stderr.on('data', data => {
-            const errorText = data.toString();
-            stderrBuffer += errorText;
-            console.error('SystemAudioDump stderr:', errorText);
-
-            // Check for "stream stopped by system" error (-3821)
-            if (errorText.includes('-3821') || errorText.includes('Stream was stopped by the system')) {
-                const systemStopError = 'System audio capture was interrupted by macOS. This usually happens when the app loses focus or macOS background restrictions activate. The app may need to remain visible for system audio capture to work reliably.';
-                console.error('System interruption detected:', systemStopError);
-                sendToRenderer('update-status', 'Warning: ' + systemStopError);
-
-                // Note: We don't reject here because audio was working initially
-                // The system just stopped it mid-session
-            }
-            // Check for permission errors (-3805)
-            else if (errorText.includes('-3805') ||
-                errorText.includes('ScreenCaptureKit') ||
-                errorText.includes('permission') ||
-                errorText.includes('Screen Recording')) {
-
-                const permissionError = 'Screen Recording permission required. Please grant permission in System Settings → Privacy & Security → Screen Recording and enable the app (Terminal.app or Prism.app).';
-                console.error('Permission error detected:', permissionError);
-                sendToRenderer('update-status', 'Error: ' + permissionError);
-
-                // Don't reject immediately - let the timeout handle it
-                // This allows the user to see the full error message
-            }
-        });
-
-        systemAudioProc.on('close', code => {
-            console.log('SystemAudioDump process closed with code:', code);
-            systemAudioProc = null;
-
-            if (!hasReceivedAudio) {
-                // Process closed before receiving audio - likely a permission error
-                let errorMessage = 'SystemAudioDump closed unexpectedly';
-                if (stderrBuffer) {
-                    errorMessage += ': ' + stderrBuffer.trim();
-                }
-                if (code !== 0) {
-                    errorMessage += ' (exit code: ' + code + ')';
-                }
-                reject(new Error(errorMessage));
-            }
-        });
-
-        systemAudioProc.on('error', err => {
-            console.error('SystemAudioDump process error:', err);
-            systemAudioProc = null;
-            reject(err);
-        });
-
-        // Set a 5-second timeout for receiving first audio data
-        // If no audio is received, it's likely a permission issue
-        startupTimeout = setTimeout(() => {
-            if (!hasReceivedAudio) {
-                console.error('SystemAudioDump timeout: No audio data received after 5 seconds');
-
-                let errorMessage = 'SystemAudioDump failed to capture audio. ';
-
-                if (stderrBuffer.includes('-3805') ||
-                    stderrBuffer.includes('ScreenCaptureKit') ||
-                    stderrBuffer.includes('permission')) {
-                    errorMessage += 'This is likely a Screen Recording permission issue. Please:\n\n' +
-                                  '1. Open System Settings → Privacy & Security → Screen Recording\n' +
-                                  '2. Enable the app you are running (Terminal.app if using npm start, or Prism.app if using DMG)\n' +
-                                  '3. Restart the app';
-                } else if (stderrBuffer) {
-                    errorMessage += 'Error: ' + stderrBuffer.trim();
-                } else {
-                    errorMessage += 'No error details available. Check Terminal logs.';
-                }
-
-                // Kill the process
-                if (systemAudioProc) {
-                    systemAudioProc.kill('SIGTERM');
-                }
-
-                reject(new Error(errorMessage));
-            }
-        }, 5000);
-    });
+        
+        // Also update status for backward compatibility
+        sendToRenderer('update-status', 'Error: Audio capture failed');
+        
+        throw new Error(diagnosis.userMessage);
+    }
 }
 
 function convertStereoToMono(stereoBuffer) {
@@ -1526,8 +1463,15 @@ function convertStereoToMono(stereoBuffer) {
 }
 
 function stopMacOSAudioCapture() {
-    if (systemAudioProc) {
-        console.log('Stopping SystemAudioDump...');
+    console.log('Stopping macOS audio capture...');
+    
+    // Use AudioCaptureManager.stop() if available
+    if (audioCaptureManager) {
+        audioCaptureManager.stop();
+        systemAudioProc = null;
+    } else if (systemAudioProc) {
+        // Fallback to direct process.kill() for backward compatibility
+        console.log('Stopping SystemAudioDump directly (no AudioCaptureManager)...');
         systemAudioProc.kill('SIGTERM');
         systemAudioProc = null;
     }

@@ -220,6 +220,11 @@ export class PrismApp extends LitElement {
                 };
                 this.requestUpdate();
             });
+
+            // Audio capture error listener
+            ipcRenderer.on('audio-capture-error', (errorData) => {
+                this.handleAudioCaptureError(errorData);
+            });
         }
     }
 
@@ -235,6 +240,7 @@ export class PrismApp extends LitElement {
             ipcRenderer.removeAllListeners('reconnection-success');
             ipcRenderer.removeAllListeners('reconnection-failed');
             ipcRenderer.removeAllListeners('reconnection-error');
+            ipcRenderer.removeAllListeners('audio-capture-error');
         }
     }
 
@@ -244,6 +250,93 @@ export class PrismApp extends LitElement {
         if (errorNotificationElement) {
             errorNotificationElement.addNotification(notification);
         }
+    }
+
+    // Handle audio capture errors
+    handleAudioCaptureError(errorData) {
+        console.log('[PrismApp] Received audio capture error:', errorData);
+        
+        // Build recovery steps from the error data
+        const recoverySteps = [];
+        if (errorData.suggestedFix) {
+            // Parse suggested fix into steps (split by newlines or numbered items)
+            const fixLines = errorData.suggestedFix.split('\n').filter(line => line.trim());
+            fixLines.forEach(line => {
+                // Remove leading numbers/bullets if present
+                const cleanLine = line.replace(/^\d+\.\s*/, '').replace(/^[-•]\s*/, '').trim();
+                if (cleanLine) {
+                    recoverySteps.push(cleanLine);
+                }
+            });
+        }
+        
+        // Build action buttons
+        const actions = [];
+        
+        // Add "Try Again" button if retry is possible
+        if (errorData.canRetry) {
+            actions.push({
+                label: 'Try Again',
+                primary: true,
+                dismissOnClick: true,
+                onClick: async () => {
+                    console.log('[PrismApp] Retrying audio capture...');
+                    if (window.electron) {
+                        try {
+                            const result = await window.electron.invoke('start-macos-audio');
+                            if (result.success) {
+                                this.addErrorNotification({
+                                    type: 'info',
+                                    title: 'Audio Capture Started',
+                                    message: 'System audio capture is now active.',
+                                });
+                            }
+                        } catch (error) {
+                            console.error('[PrismApp] Retry failed:', error);
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Add "Use Fallback" button if fallback is available
+        if (errorData.fallbackAvailable) {
+            actions.push({
+                label: 'Use Fallback',
+                primary: false,
+                dismissOnClick: true,
+                onClick: async () => {
+                    console.log('[PrismApp] Using fallback audio capture method...');
+                    // The fallback will be attempted automatically by AudioCaptureManager
+                    // This button just dismisses the error and lets the user know
+                    this.addErrorNotification({
+                        type: 'info',
+                        title: 'Using Fallback',
+                        message: 'Attempting alternative audio capture method...',
+                    });
+                }
+            });
+        }
+        
+        // Add "Dismiss" button
+        actions.push({
+            label: 'Dismiss',
+            primary: false,
+            dismissOnClick: true,
+            onClick: () => {
+                console.log('[PrismApp] Error dismissed by user');
+            }
+        });
+        
+        // Display the error notification
+        this.addErrorNotification({
+            type: 'error',
+            title: errorData.title || 'Audio Capture Error',
+            message: errorData.message || 'Failed to start audio capture.',
+            recoverySteps: recoverySteps.length > 0 ? recoverySteps : undefined,
+            actions: actions,
+            persistent: true // Don't auto-dismiss audio capture errors
+        });
     }
 
     // Reconnection overlay handlers

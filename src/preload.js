@@ -54,7 +54,8 @@ const validChannels = {
         'reconnection-success',
         'reconnection-failed',
         'analytics-update',
-        'coaching-state-changed'
+        'coaching-state-changed',
+        'audio-capture-error'
     ]
 };
 

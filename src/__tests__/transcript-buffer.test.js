@@ -1,4 +1,4 @@
-const { describe, it, expect } = require('vitest');
+// Vitest globals are available without import
 const fc = require('fast-check');
 const { normalizeText } = require('../utils/gemini');
 

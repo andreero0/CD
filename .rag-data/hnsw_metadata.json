@@ -1,0 +1,112 @@
+{
+  "numDimensions": 384,
+  "maxElements": 55,
+  "numElements": 15,
+  "documentChunks": [
+    {
+      "id": 0,
+      "sessionId": "V?sJW.hjPrqy*7",
+      "text": "Lifecycle test chunk 0",
+      "chunkIndex": 0,
+      "timestamp": 1764463234894
+    },
+    {
+      "id": 1,
+      "sessionId": "V?sJW.hjPrqy*7",
+      "text": "Lifecycle test chunk 1",
+      "chunkIndex": 1,
+      "timestamp": 1764463234895
+    },
+    {
+      "id": 2,
+      "sessionId": "V?sJW.hjPrqy*7",
+      "text": "Lifecycle test chunk 2",
+      "chunkIndex": 2,
+      "timestamp": 1764463234896
+    },
+    {
+      "id": 3,
+      "sessionId": "V?sJW.hjPrqy*7",
+      "text": "Lifecycle test chunk 3",
+      "chunkIndex": 3,
+      "timestamp": 1764463234897
+    },
+    {
+      "id": 4,
+      "sessionId": "V?sJW.hjPrqy*7",
+      "text": "Lifecycle test chunk 4",
+      "chunkIndex": 4,
+      "timestamp": 1764463234898
+    },
+    {
+      "id": 5,
+      "sessionId": "V?sJW.hjPrqy*7",
+      "text": "Lifecycle test chunk 5",
+      "chunkIndex": 5,
+      "timestamp": 1764463234899
+    },
+    {
+      "id": 6,
+      "sessionId": "V?sJW.hjPrqy*7",
+      "text": "Lifecycle test chunk 6",
+      "chunkIndex": 6,
+      "timestamp": 1764463234900
+    },
+    {
+      "id": 7,
+      "sessionId": "V?sJW.hjPrqy*7",
+      "text": "Lifecycle test chunk 7",
+      "chunkIndex": 7,
+      "timestamp": 1764463234901
+    },
+    {
+      "id": 8,
+      "sessionId": "V?sJW.hjPrqy*7",
+      "text": "Lifecycle test chunk 8",
+      "chunkIndex": 8,
+      "timestamp": 1764463234902
+    },
+    {
+      "id": 9,
+      "sessionId": "V?sJW.hjPrqy*7",
+      "text": "Lifecycle test chunk 9",
+      "chunkIndex": 9,
+      "timestamp": 1764463234903
+    },
+    {
+      "id": 10,
+      "sessionId": "V?sJW.hjPrqy*7",
+      "text": "Lifecycle test chunk 10",
+      "chunkIndex": 10,
+      "timestamp": 1764463234904
+    },
+    {
+      "id": 11,
+      "sessionId": "V?sJW.hjPrqy*7",
+      "text": "Lifecycle test chunk 11",
+      "chunkIndex": 11,
+      "timestamp": 1764463234905
+    },
+    {
+      "id": 12,
+      "sessionId": "V?sJW.hjPrqy*7",
+      "text": "Lifecycle test chunk 12",
+      "chunkIndex": 12,
+      "timestamp": 1764463234906
+    },
+    {
+      "id": 13,
+      "sessionId": "V?sJW.hjPrqy*7",
+      "text": "Lifecycle test chunk 13",
+      "chunkIndex": 13,
+      "timestamp": 1764463234907
+    },
+    {
+      "id": 14,
+      "sessionId": "V?sJW.hjPrqy*7",
+      "text": "Lifecycle test chunk 14",
+      "chunkIndex": 14,
+      "timestamp": 1764463234908
+    }
+  ]
+}

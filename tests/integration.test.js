@@ -1,5 +1,5 @@
 const fc = require('fast-check');
-const { describe, it, expect, beforeEach } = require('vitest');
+// Vitest globals are available without import
 
 describe('Full Transcript Flow Integration', () => {
     it('Audio → Correlation → Buffer → UI flow', async () => {
